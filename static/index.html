@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VGT Studio · Programmplanung</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div id="app"><div class="loading">VGT Studio wird geladen …</div></div>
+  <dialog id="editor"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input id="import-file" type="file" accept="application/json,.json" hidden>
+  <input id="audio-file" type="file" accept="audio/*,.mp4" hidden>
+  <audio id="audio" preload="metadata"></audio>
+</body>
+</html>
