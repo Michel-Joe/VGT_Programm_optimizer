@@ -19,6 +19,24 @@ class PlannerTests(unittest.TestCase):
         self.assertFalse(any(w["kind"] == "conflict" for w in report["warnings"]))
         self.assertTrue(all(p["unplanned"] == 0 for p in report["people"]))
 
+    def test_optional_chief_is_backwards_compatible_and_must_participate(self):
+        validate_project(self.p)  # Existing projects do not need migration.
+        self.p["actions"][0]["leader_id"] = "p1"
+        validate_project(self.p)
+        self.p["actions"][0]["leader_id"] = "p2"
+        with self.assertRaisesRegex(ValueError, "Chef"):
+            validate_project(self.p)
+        self.p["actions"][0]["leader_id"] = "missing"
+        with self.assertRaisesRegex(ValueError, "Chef"):
+            validate_project(self.p)
+
+    def test_chief_roundtrip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "chief.sqlite3")
+            self.p["actions"][0]["leader_id"] = "p1"
+            store.save(self.p, 1)
+            self.assertEqual(store.read()["project"]["actions"][0]["leader_id"], "p1")
+
     def test_tempo_per_section(self):
         self.p["sections"][0]["bpm"] = 60
         self.assertAlmostEqual(analyse(self.p)["seconds"], 8 + 56 * 60 / 52)

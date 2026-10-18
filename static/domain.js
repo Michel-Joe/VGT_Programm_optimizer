@@ -67,3 +67,33 @@ export function formatTime(seconds, precise=false) {
 export function countLabel(p, beat) {
   return `${Math.floor(beat/p.phrase)+1} · ${+(beat%p.phrase+1).toFixed(2)}`;
 }
+
+// Intervals are half-open: a handover at the exact end belongs to the next action.
+export function personMoment(project, person, beat, all=globalActions(project)) {
+  const actions=all.filter(a=>a.people.includes(person.id));
+  const ended=actions.filter(a=>a.globalStart+a.length<=beat);
+  const lastEnd=Math.max(-Infinity,...ended.map(a=>a.globalStart+a.length));
+  const future=actions.filter(a=>a.globalStart>beat);
+  const nextStart=Math.min(Infinity,...future.map(a=>a.globalStart));
+  return {
+    position:positionAt(person,beat),
+    previous:ended.filter(a=>a.globalStart+a.length===lastEnd),
+    current:actions.filter(a=>a.globalStart<=beat&&beat<a.globalStart+a.length),
+    next:future.filter(a=>a.globalStart===nextStart),
+  };
+}
+
+export function cueAt(action, beat) {
+  return [...action.cues].filter(c=>action.globalStart+c.beat<=beat)
+    .sort((a,b)=>b.beat-a.beat)[0] || null;
+}
+
+export function eventBeats(project, personId='') {
+  const events=new Set([0,totalBeats(project),...sections(project).map(s=>s.start)]);
+  for(const action of globalActions(project).filter(a=>!personId||a.people.includes(personId))) {
+    events.add(action.globalStart);events.add(action.globalStart+action.length);
+    action.cues.forEach(c=>events.add(action.globalStart+c.beat));
+  }
+  for(const person of project.people.filter(p=>!personId||p.id===personId))person.frames.forEach(f=>events.add(f.beat));
+  return [...events].sort((a,b)=>a-b);
+}

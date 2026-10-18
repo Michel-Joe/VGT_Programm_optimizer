@@ -1,4 +1,6 @@
-import {clone, uid, clamp, snap, sections, totalBeats, beatToSeconds, secondsToBeat, positionAt, setFrame, resizeSection, globalActions, scaleAction, formatTime, countLabel} from './domain.js';
+import {clone, uid, clamp, snap, sections, totalBeats, beatToSeconds, secondsToBeat, positionAt, setFrame, resizeSection, globalActions, scaleAction, formatTime, countLabel, personMoment, eventBeats} from './domain.js';
+import {writerView,setupView,momentRows,selectionDetail,chiefLabel} from './writer.js';
+import {durationText,parseDuration,sequenceText,parseSequence,sequenceLines,scaleSequence} from './exercise.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -20,6 +22,8 @@ const colors = ['#217c70','#de9150','#6273bc','#c66586','#4d96b8','#908347','#96
 const state = {project:null, revision:0, report:null, tab:'program', section:'', person:'', beat:0, selected:null, floorMode:'view', transition:'linear', playing:false, status:'Laden …', history:[], future:[], version:0, savedVersion:0, saving:false, timer:null, audioUrl:null, audioReady:false, zoom:30};
 const audio = $('#audio');
 let drag = null, frameRequest = null, playbackOrigin = null;
+state.positionEdit=null;
+let momentSignature='';
 
 function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toast.timer); toast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),5000); }
 function markChanged(before) {
@@ -29,6 +33,7 @@ function markChanged(before) {
   render(); scheduleSave();
 }
 function mutate(fn) {
+  if(state.positionEdit){toast('Zuerst die Positionsvorschau übernehmen oder verwerfen.');return false;}
   pause(); const before=clone(state.project);
   try { fn(state.project); markChanged(before); return true; }
   catch(error) { state.project=before; toast(error.message); return false; }
@@ -39,7 +44,7 @@ async function save() {
   state.saving=true;
   try {
     while(state.savedVersion !== state.version) {
-      const version=state.version, project=clone(state.project);
+      const version=state.version, project=clone(state.positionEdit?.before||state.project);
       const response=await fetch('/api/project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:state.revision,project})});
       const result=await response.json();
       if(!response.ok) throw new Error(result.error || 'Speichern fehlgeschlagen.');
@@ -60,34 +65,30 @@ function render() {
   $('#app').innerHTML=`<aside class="sidebar">
     <a class="brand" href="/" aria-label="VGT Studio Startseite"><span class="brand-symbol">∥</span><span>VGT<span class="brand-light">studio</span><small>BEWEGUNG PLANEN.</small></span></a>
     <div class="workspace-label">DEIN ARBEITSRAUM</div>
-    <nav>${[['program','grid','Programm'],['people','people','Turnende'],['parts','parts','Bausteine'],['checks','check','Programmcheck']].map(([id,i,n])=>btn('tab',`${icon(i)}${n}${id==='checks'?'<span class="nav-dot"></span>':''}`,`nav-item ${state.tab===id?'active':''}`,`data-id="${id}"`)).join('')}</nav>
+    <nav>${[['program','grid','Programm schreiben'],['people','people','Turnende'],['parts','parts','Bausteine'],['checks','check','Programmcheck'],['setup','settings','Geräteaufstellung']].map(([id,i,n])=>btn('tab',`${icon(i)}${n}${id==='checks'?'<span class="nav-dot"></span>':''}`,`nav-item ${state.tab===id?'active':''}`,`data-id="${id}"`)).join('')}</nav>
     <div class="sidebar-bottom"><div class="local-badge"><span class="status-dot"></span> Lokal auf deinem Computer</div><p>Deine Choreografie.<br>Schlag für Schlag.</p>${btn('help','Kurzanleitung ↗','text-button')}</div>
   </aside>
   <div class="workspace"><header class="topbar"><div class="breadcrumb">Arbeitsraum <span>/</span> ${esc(p.club||'Mein Verein')}</div><div class="top-actions"><span id="save-status" class="save-status">${esc(state.status)}</span>${btn('undo',icon('back'),'icon-button','title="Rückgängig (Ctrl+Z)" aria-label="Rückgängig" '+(!state.history.length?'disabled':''))}${btn('export',`${icon('export')} Projekt sichern`,'outline')}${btn('settings',icon('settings'),'icon-button','title="Programmeinstellungen" aria-label="Programmeinstellungen"')}</div></header>
-  <main id="main"></main><footer class="app-footer"><span>VGT STUDIO <span class="version">PROTOTYP 01</span></span><span>Planen. Abstimmen. Gemeinsam turnen.</span></footer></div>`;
+  <main id="main"></main><footer class="app-footer"><span>VGT STUDIO <span class="version">PROTOTYP 02</span></span><span>Planen. Abstimmen. Gemeinsam turnen.</span></footer></div>`;
   renderMain();
+  $('.sidebar').inert=!!state.positionEdit;
+  $('.topbar').inert=!!state.positionEdit;
 }
 function renderMain() {
   const el=$('#main'); if(!el) return;
-  el.innerHTML=state.tab==='program'?programView():state.tab==='people'?peopleView():state.tab==='parts'?partsView():checksView();
+  el.innerHTML=state.tab==='program'?programView():state.tab==='setup'?setupView(state,{btn,floorSvg}):state.tab==='people'?peopleView():state.tab==='parts'?partsView():checksView();
+  momentSignature='';
   if(state.tab==='program') updateLive();
 }
 function pageHeading(eyebrow,title,subtitle,actions='') { return `<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1><p>${subtitle}</p></div><div class="heading-actions">${actions}</div></div>`; }
-function programView() {
-  const p=state.project,s=currentSection();
-  return pageHeading('CHOREOGRAFIE & ABLAUF',p.name,`${p.people.length} Turnende <span class="middot">·</span> ${p.stations.filter(s=>s.kind==='bar').length} Barren <span class="middot">·</span> ${totalBeats(p)} Schläge <span class="middot">·</span> ${formatTime(beatToSeconds(p,totalBeats(p)))} geplant`, btn('print','Druckansicht','outline')+btn('new-action',`${icon('plus')} Aktion hinzufügen`,'primary'))+
-  `<div class="program-grid"><section class="panel sequence-panel"><div class="panel-heading"><h2>Abschnitte</h2>${btn('new-section','+','small-button','title="Abschnitt hinzufügen" aria-label="Abschnitt hinzufügen"')}</div><div class="sequence-list">${sections(p).map((s,i)=>`<button class="sequence-item ${state.section===s.id?'selected':''}" data-do="section" data-id="${esc(s.id)}"><span class="sequence-index">${String(i+1).padStart(2,'0')}</span><span><strong>${esc(s.name)}</strong><small>${s.beats} Schläge <span>·</span> ${formatTime(s.seconds)}</small></span><span class="sequence-mark"></span></button>`).join('')}</div><div class="section-note"><span class="eyebrow">REGIE-NOTIZ</span><p>${esc(s.note)||'Noch keine Notiz für diesen Abschnitt.'}</p>${btn('edit-section','Abschnitt bearbeiten ↗','text-button',`data-id="${esc(s.id)}"`)}</div><div class="sequence-bottom">${btn('new-section','+ Abschnitt ergänzen','text-button')}</div></section>
-  <section class="panel floor-panel"><div class="panel-heading"><div><h2>Aufstellung <span class="pill">LIVE</span></h2><small id="floor-caption">Gesamte Riege · Draufsicht</small></div><div class="floor-tools"><select id="floor-mode" aria-label="Aufstellung bearbeiten">${option('view','Ansicht',state.floorMode)}${option('layout','Geräte verschieben',state.floorMode)}${option('positions','Positionen setzen',state.floorMode)}</select>${btn('new-station','+ Gerät','small-button')}</div></div><div id="floor" class="floor-container">${floorSvg()}</div><div class="floor-bottom"><div class="legend"><span><i class="legend-bar"></i>Barren</span><span><i class="legend-dot"></i>Turnende</span><span><i class="legend-path"></i>Bewegungsweg</span></div><span>${p.floor.width} × ${p.floor.height} m</span></div><div class="floor-hint">${state.floorMode==='layout'?'Geräte ziehen; anklicken zum Drehen oder genauen Positionieren.':state.floorMode==='positions'?`Turner ziehen: Position auf Schlag ${snap(state.beat)+1} speichern. `+'<select id="transition" aria-label="Bewegung zur Position">'+option('linear','Weg zur Position',state.transition)+option('hold','Bis dahin stehen bleiben',state.transition)+'</select>':'Zeitregler bewegen, um Aufstellung und Einsätze zu verfolgen.'}</div></section>
-  <section class="panel inspector" id="inspector">${inspectorView()}</section></div>
-  <section class="panel timeline-panel"><div class="panel-heading"><div><h2>Ablauf <span class="muted">/ ${esc(s.name)}</span></h2><small>Aktionen parallel planen · Balken anklicken zum Bearbeiten</small></div><div class="timeline-controls"><select id="person-filter" aria-label="Turner filtern">${personOptions(state.person)}</select><select id="zoom" aria-label="Zeitleiste Zoom">${[20,30,48,72].map(v=>option(String(v),`${v===20?'Kompakt':v===30?'Normal':v===48?'Gross':'Detail'}`,String(state.zoom))).join('')}</select></div></div><div class="timeline-scroll" id="timeline-scroll">${timelineView()}</div><div class="transport"><div class="play-controls">${btn('rewind','↤','icon-button','aria-label="Zum Programmanfang" title="Zum Programmanfang"')}${btn('play',icon(state.playing?'pause':'play'),'play-button','aria-label="Abspielen oder pausieren" id="play-toggle"')}<div><strong id="current-time">0:00</strong><small> / ${formatTime(beatToSeconds(p,totalBeats(p)))}</small></div></div><div class="scrub"><div><span id="count-label"></span><span id="beat-label"></span></div><input id="scrubber" type="range" min="0" max="${totalBeats(p)}" step="0.25" value="${state.beat}" aria-label="Programmposition"></div><div class="tempo"><strong id="tempo-label">${s.bpm}</strong><small>BPM</small></div>${btn('music',`${icon('plus')} ${state.audioReady?'Musik wechseln':'Musik laden'}`,'outline')}<span class="audio-indicator" id="audio-indicator">${state.audioReady?'Mit Musik':'Ohne Musik'}</span></div></section>`;
-}
+function programView() { return writerView(state,{btn,icon,option,personOptions,floorSvg,timelineView}); }
 function floorSvg() {
   const p=state.project,w=p.floor.width*40,h=p.floor.height*40;
   return `<svg id="stage" viewBox="-26 -20 ${w+52} ${h+55}" role="img" aria-label="Aufstellung der Barren und Turnenden zum gewählten Schlag"><defs><pattern id="floor-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#dce3dd" stroke-width="0.8"/></pattern></defs><rect width="${w}" height="${h}" rx="4" fill="#f4f7f2"/><rect width="${w}" height="${h}" fill="url(#floor-grid)"/><path d="M${w/2-8} ${h/2}h16m-8-8v16" stroke="#b5c4b8" stroke-width="1.5"/>
   ${Array.from({length:Math.floor(p.floor.width/2)+1},(_,i)=>`<text x="${i*80}" y="-7" text-anchor="middle" class="dimension">${i*2}</text>`).join('')}
   <g id="paths">${p.people.filter(person=>!state.person||person.id===state.person).map(person=>{const fs=[...person.frames].sort((a,b)=>a.beat-b.beat);return fs.slice(1).filter(f=>f.transition==='linear').map(f=>{const prev=fs[fs.indexOf(f)-1];return `<path d="M${prev.x*40} ${prev.y*40}L${f.x*40} ${f.y*40}" stroke="${person.color}" stroke-opacity=".2" stroke-width="1.5" stroke-dasharray="5 5" fill="none"/>`;}).join('');}).join('')}</g>
   ${p.stations.map(s=>`<g transform="translate(${s.x*40} ${s.y*40})" data-drag="station" data-id="${esc(s.id)}" class="stage-station"><g transform="rotate(${s.rotation})">${s.kind==='bar'?'<rect x="-31" y="-69" width="62" height="138" rx="12" fill="#dcebe0" stroke="#a5c3af"/><path d="M-15-50V50M15-50V50" stroke="#435c4e" stroke-width="7" stroke-linecap="round"/><path d="M-24-35h48M-24 35h48" stroke="#809586" stroke-width="4"/>':'<rect x="-60" y="-24" width="120" height="48" rx="10" fill="#ede5d4" fill-opacity=".7" stroke="#c7b692" stroke-dasharray="5 4"/>'}</g><text y="${s.kind==='bar'?89:42}" text-anchor="middle" class="station-label">${esc(s.name)}</text><title>${esc(s.name)} · ${s.x.toFixed(1)}, ${s.y.toFixed(1)} m</title></g>`).join('')}
-  <g id="person-dots">${p.people.map((person,i)=>{const xy=positionAt(person,state.beat);return `<g class="person-dot ${state.person&&state.person!==person.id?'dimmed':''}" transform="translate(${xy.x*40} ${xy.y*40})" data-drag="person" data-id="${esc(person.id)}"><circle r="12" fill="${person.color}" stroke="white" stroke-width="3"/><text text-anchor="middle" dy="4" fill="white" class="dot-number">${i+1}</text><text class="dot-name" y="26" text-anchor="middle">${esc(person.name)}</text><title>${esc(person.name)}</title></g>`;}).join('')}</g><path d="M${w/2-65} ${h+19}h130" stroke="#b0bbae"/><text x="${w/2}" y="${h+34}" text-anchor="middle" class="audience-label">PUBLIKUM / FRONT</text></svg>`;
+  <g id="person-dots">${p.people.map((person,i)=>{const xy=positionAt(person,state.beat);return `<g class="person-dot ${state.person&&state.person!==person.id?'dimmed':''}" transform="translate(${xy.x*40} ${xy.y*40})" data-drag="person" data-id="${esc(person.id)}"><circle r="12" fill="${person.color}" stroke="white" stroke-width="3"/><text text-anchor="middle" dy="4" fill="white" class="dot-number">${i+1}</text><text class="chief-star" data-person="${esc(person.id)}" visibility="hidden" x="15" y="-12" text-anchor="middle" fill="#9d6f18" font-size="20">★</text><text class="dot-name" y="26" text-anchor="middle">${esc(person.name)}</text><title>${esc(person.name)}</title></g>`;}).join('')}</g><path d="M${w/2-65} ${h+19}h130" stroke="#b0bbae"/><text x="${w/2}" y="${h+34}" text-anchor="middle" class="audience-label">PUBLIKUM / FRONT</text></svg>`;
 }
 function inspectorView() {
   const p=state.project,a=p.actions.find(a=>a.id===state.selected),s=currentSection();
@@ -115,6 +116,14 @@ function updateLive() {
   if($('#tempo-label')) $('#tempo-label').textContent=actual.bpm;
   if($('#live-count')) $('#live-count').textContent=countLabel(p,beat);
   if($('#floor-caption')) $('#floor-caption').textContent=`${actual.name} · ${state.beat>=totalBeats(p)?'Ende':`Schlag ${beat+1}`}`;
+  if($('#writer-time'))$('#writer-time').textContent=state.beat>=totalBeats(p)?'Programmende':`Schlag ${beat+1}`;
+  if($('#writer-count'))$('#writer-count').textContent=`Zählgruppe ${countLabel(p,beat)}`;
+  if($('#beat-input')&&document.activeElement!==$('#beat-input'))$('#beat-input').value=beat+1;
+  if($('#writer-section'))$('#writer-section').textContent=`${actual.name} · Schlag ${+(state.beat-actual.start+1).toFixed(2)} im Abschnitt`;
+  const signature=`${beat}|${state.version}|${state.person}`;
+  if($('#moment-rows')&&signature!==momentSignature){$('#moment-rows').innerHTML=momentRows(state);if($('#writer-detail'))$('#writer-detail').innerHTML=selectionDetail(state,{btn});momentSignature=signature;}
+  const leaders=new Set(globalActions(p).filter(a=>a.globalStart<=state.beat&&state.beat<a.globalStart+a.length).map(a=>a.leader_id).filter(Boolean));
+  document.querySelectorAll('.chief-star').forEach(el=>el.setAttribute('visibility',leaders.has(el.dataset.person)?'visible':'hidden'));
   if(state.floorMode==='positions' && $('.floor-hint')?.firstChild?.nodeType===Node.TEXT_NODE) $('.floor-hint').firstChild.textContent=`Turner ziehen: Position auf Schlag ${snap(state.beat)+1} speichern. `;
   document.querySelectorAll('#person-dots [data-id]').forEach(el=>{const person=p.people.find(x=>x.id===el.dataset.id);const xy=positionAt(person,state.beat);el.setAttribute('transform',`translate(${xy.x*40} ${xy.y*40})`);});
   document.querySelectorAll('.lane-cursor').forEach(el=>{el.style.left=`${(state.beat-s.start)*state.zoom}px`;el.hidden=state.beat<s.start||state.beat>s.start+s.beats;});
@@ -131,7 +140,7 @@ function peopleView() {
   const persons=selected?[selected]:p.people;
   return pageHeading('DIE RIEGE','Jeder Einsatz im Blick',`Persönliche Ablaufpläne · Musikzeiten aus BPM berechnet · Musikversatz ${p.music.offset} s.`,btn('new-person',`${icon('plus')} Turner hinzufügen`,'primary'))+
     `<div class="panel people-toolbar"><label>Persönlicher Ablauf <select id="person-filter" aria-label="Turner filtern">${personOptions(state.person)}</select></label><div>${btn('csv','CSV exportieren','outline')}${btn('print','Ablauf drucken','outline')}</div></div><div class="person-tabs">${p.people.map(person=>btn('filter-person',`<i style="background:${person.color}"></i>${esc(person.name)}`,`person-chip ${state.person===person.id?'active':''}`,`data-id="${esc(person.id)}"`)).join('')}</div>
-    ${persons.map(person=>{const actions=globalActions(p).filter(a=>a.people.includes(person.id));return `<section class="panel person-sheet"><div class="panel-heading"><div class="person-title"><span class="avatar" style="--person-color:${person.color}">${esc(person.name[0]||'?')}</span><div><h2>${esc(person.name)}</h2><small>${actions.length} Einsätze · ${person.frames.length} gespeicherte Positionen</small></div></div><div>${btn('positions','Positionen','outline',`data-id="${esc(person.id)}"`)}${btn('edit-person','Bearbeiten','outline',`data-id="${esc(person.id)}"`)}</div></div><div class="table-wrap"><table><thead><tr><th>Musikzeit / Zählung</th><th>Abschnitt / Einsatz</th><th>Posten</th><th>Dauer</th><th>Auftrag & Schlagnotizen</th></tr></thead><tbody>${actions.map(a=>`<tr><td><strong>${formatTime(beatToSeconds(p,a.globalStart)+p.music.offset,true)}</strong><small>Gruppe ${countLabel(p,a.globalStart)}<br>Absolut ${a.globalStart+1}</small></td><td><small>${esc(a.section.name)} · Schlag ${a.start+1}</small><button class="table-link" data-do="edit-action" data-id="${esc(a.id)}">${esc(a.title)}</button><span class="tag ${a.kind}">${kinds[a.kind]}</span></td><td>${esc(p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche')}</td><td>${a.length} Schläge</td><td><p>${esc(a.note)}</p>${a.cues.map(c=>`<div class="report-cue"><b>${a.start+c.beat+1}</b><span>${esc(c.text)} <small>(${formatTime(beatToSeconds(p,a.globalStart+c.beat)+p.music.offset,true)})</small></span></div>`).join('')}</td></tr>`).join('')||'<tr><td colspan="5">Noch keine Einsätze geplant.</td></tr>'}</tbody></table></div></section>`;}).join('')||'<div class="empty">Füge deinen ersten Turner hinzu.</div>'}`;
+    ${persons.map(person=>{const actions=globalActions(p).filter(a=>a.people.includes(person.id));return `<section class="panel person-sheet"><div class="panel-heading"><div class="person-title"><span class="avatar" style="--person-color:${person.color}">${esc(person.name[0]||'?')}</span><div><h2>${esc(person.name)}</h2><small>${actions.length} Einsätze · ${person.frames.length} gespeicherte Positionen</small></div></div><div>${btn('positions','Positionen','outline',`data-id="${esc(person.id)}"`)}${btn('edit-person','Bearbeiten','outline',`data-id="${esc(person.id)}"`)}</div></div><div class="table-wrap"><table><thead><tr><th>Musikzeit / Zählung</th><th>Abschnitt / Einsatz</th><th>Posten</th><th>Dauer</th><th>Auftrag & Schlagnotizen</th></tr></thead><tbody>${actions.map(a=>`<tr><td><strong>${formatTime(beatToSeconds(p,a.globalStart)+p.music.offset,true)}</strong><small>Gruppe ${countLabel(p,a.globalStart)}<br>Absolut ${a.globalStart+1}</small></td><td><small>${esc(a.section.name)} · Schlag ${a.start+1}</small><button class="table-link" data-do="edit-action" data-id="${esc(a.id)}">${esc(a.title)}</button><span class="tag ${a.kind}">${kinds[a.kind]}</span> <span class="chief-badge">Chef: ${esc(chiefLabel(p,a))}</span></td><td>${esc(p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche')}</td><td>${a.length} Schläge</td><td><p>${esc(a.note)}</p>${a.cues.map(c=>`<div class="report-cue"><b>${a.start+c.beat+1}</b><span>${esc(c.text)} <small>(${formatTime(beatToSeconds(p,a.globalStart+c.beat)+p.music.offset,true)})</small></span></div>`).join('')}</td></tr>`).join('')||'<tr><td colspan="5">Noch keine Einsätze geplant.</td></tr>'}</tbody></table></div></section>`;}).join('')||'<div class="empty">Füge deinen ersten Turner hinzu.</div>'}`;
 }
 function partsView() {
   const p=state.project;
@@ -153,7 +162,7 @@ function field(label,name,value='',type='text',attrs='') {return `<label>${label
 function textArea(label,name,value='',attrs='') {return `<label>${label}<textarea name="${name}" ${attrs}>${esc(value)}</textarea></label>`;}
 function selectField(label,name,options) {return `<label>${label}<select name="${name}">${options}</select></label>`;}
 function showModal(title,body,formType,id='',footer='') {
-  pause(); const dialog=$('#editor');
+  pause(); state.floorMode='view'; const dialog=$('#editor');
   dialog.innerHTML=`<form data-form="${formType}" data-id="${esc(id)}"><div class="modal-heading"><div><div class="eyebrow">VGT STUDIO</div><h2>${esc(title)}</h2></div>${btn('close-modal','×','icon-button','aria-label="Dialog schliessen"')}</div><div class="modal-body">${body}</div><div id="form-error" role="alert"></div><div class="modal-footer"><div>${footer}</div><div>${btn('close-modal','Abbrechen','outline')}<button type="submit" class="primary">Speichern</button></div></div></form>`;
   if(!dialog.open) dialog.showModal();
 }
@@ -167,22 +176,70 @@ function readCues(form,length) {
   return cues.sort((a,b)=>a.beat-b.beat);
 }
 function readElements(form) {return [...form.querySelectorAll('.element-edit')].map(row=>({name:row.querySelector('.element-name').value.trim(),countable:row.querySelector('.element-countable').checked}));}
+function simpleSequenceFields(item,length) {
+  return `<div class="exercise-duration"><label>Dauer<input name="duration_text" value="${esc(durationText(length))}" required aria-describedby="duration-help"></label><div class="duration-presets">${[1,2,3,4].map(n=>btn('duration-preset',`${n} × 8`,'small-button',`data-length="${n*8}"`)).join('')}</div><span id="duration-help">${length} Schläge</span></div>
+    <label class="sequence-label">Elementfolge<textarea name="sequence" class="sequence-input" rows="7" maxlength="10000" spellcheck="false" placeholder="7 Arme&#10;8 Einsprung&#10;Rückschwung, Vorschwung&#10;Rückschwung Salto&#10;Vorschwung, Rückschwung Stemme">${esc(sequenceText(item))}</textarea></label>
+    <p class="sequence-help">Eine Zeile pro Schritt oder Folge. Optional mit Schlag: <b>7 Arme</b>, <b>8 Einsprung</b>. Ab dem zweiten 8er mit <b>9, 10 …</b> weiterzählen. Ohne Zahl bleibt die Zeile frei, ohne festgelegten Zeitpunkt.</p><div id="sequence-status" class="sequence-status" aria-live="polite"></div><div id="duration-boundary"></div>`;
+}
+function refreshSequenceEditor(){
+  const form=$('#editor form');if(!form?.querySelector('[name="sequence"]'))return;
+  try{
+    const length=parseDuration(form.querySelector('[name="duration_text"]').value);
+    $('#duration-help').textContent=`${length} Schläge`;
+    const boundary=$('#duration-boundary'),extend=!!form.querySelector('[name="extend_section"]')?.checked;
+    boundary.innerHTML='';
+    if(form.dataset.form==='action'){
+      const section=state.project.sections.find(s=>s.id===form.querySelector('[name="section_id"]').value),end=Number(form.querySelector('[name="start"]').value)-1+length;
+      if(end>section.beats)boundary.innerHTML=`<label class="inline-check"><input type="checkbox" name="extend_section" ${extend?'checked':''}> Abschnitt auf ${end} Schläge verlängern</label><small>Aktuell ${section.beats} Schläge. Folgende Abschnitte und Positionen verschieben sich um ${end-section.beats} Schläge.</small>`;
+    }
+    form.querySelectorAll('[data-do="duration-preset"]').forEach(b=>{b.classList.toggle('active',Number(b.dataset.length)===length);b.setAttribute('aria-pressed',String(Number(b.dataset.length)===length));});
+    const text=form.querySelector('[name="sequence"]').value;
+    const scaling=form.querySelector('[name="scale_cues"]')?.checked;
+    const cues=parseSequence(text,scaling?state.editingAction.length:length),free=sequenceLines(text).filter(l=>l.beat===null).length;
+    $('#sequence-status').classList.remove('error');
+    $('#sequence-status').textContent=`${cues.length} Schlagmarken · ${free} freie Zeilen${scaling?' · Schlagmarken werden beim Speichern proportional verschoben.':''}`;
+  }catch(error){$('#sequence-status').classList.add('error');$('#sequence-status').textContent=error.message;}
+}
 function actionEditor(id='',partId='') {
   const p=state.project,old=p.actions.find(a=>a.id===id),part=p.parts.find(x=>x.id===partId);
-  const a=old||{title:part?.name||'',section_id:state.section,start:0,length:part?.beats||8,people:state.person?[state.person]:[],station_id:'',kind:part?.kind||'apparatus',part_id:part?.id||'',note:part?.note||'',cues:clone(part?.cues||[]),elements:clone(part?.elements||[])};
+  const s=currentSection(),start=clamp(snap(state.beat-s.start),0,s.beats-.25);
+  const a=old||{title:part?.name||'',section_id:state.section,start,length:part?.beats||Math.min(8,s.beats-start),people:state.person?[state.person]:[],leader_id:'',station_id:'',kind:part?.kind||'apparatus',part_id:part?.id||'',note:part?.note||'',sequence:part?sequenceText(part):'',cues:clone(part?.cues||[]),elements:clone(part?.elements||[])};
   state.editingAction=clone(a);
-  showModal(old?'Aktion bearbeiten':'Neue Aktion planen',`
-    ${field('Bezeichnung','title',a.title,'text','required maxlength="200" placeholder="z. B. Einsprung und Schwungfolge"')}
-    <div class="form-grid">${selectField('Abschnitt','section_id',p.sections.map(s=>option(s.id,s.name,a.section_id)).join(''))}${selectField('Aktionsart','kind',Object.entries(kinds).map(([v,l])=>option(v,l,a.kind)).join(''))}${field('Startschlag im Abschnitt','start',a.start+1,'number','min="1" step="0.25" required')}${field('Dauer in Schlägen','length',a.length,'number','min="0.25" max="4096" step="0.25" required')}${selectField('Gerät / Posten','station_id',option('','Freie Fläche',a.station_id)+p.stations.map(s=>option(s.id,s.name,a.station_id)).join(''))}<div class="field-help">Start 1 + Dauer 8 belegt die Schläge 1–8 und endet an der Grenze zu Schlag 9.</div></div>
-    <div class="form-section"><div class="form-section-heading"><h3>Wer turnt?</h3>${btn('select-all-people','Alle auswählen','text-button')}</div><div class="people-checkboxes">${p.people.map(person=>`<label><input type="checkbox" name="people" value="${esc(person.id)}" ${a.people.includes(person.id)?'checked':''}><i style="background:${person.color}"></i>${esc(person.name)}</label>`).join('')||'<p>Lege zuerst Turnende an.</p>'}</div></div>
-    ${textArea('Auftrag / Regie-Notiz','note',a.note)}${cueFields(a.cues)}${elementFields(a.elements)}
-    ${old?'<label class="inline-check"><input type="checkbox" name="scale_cues"> Bei geänderter Länge Schlagnotizen proportional verschieben</label>':''}
-    ${a.part_id?'<p class="field-help">Kopie eines Bausteins. Änderungen gelten nur für diese Aktion.</p>':''}`,'action',id,old?btn('delete-action','Aktion löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  showModal(old?'Übung / Einsatz bearbeiten':'Neue Übung planen',`
+    ${field('Übung','title',a.title,'text','required maxlength="200" placeholder="z. B. Schwungfolge mit Salto"')}
+    ${simpleSequenceFields(a,a.length)}
+    <details class="exercise-fold" ${a.people.length?'':'open'}><summary>Turnende & Gerät <span id="assignment-summary"></span></summary>
+      <div class="form-section-heading"><h3>Wer turnt?</h3>${btn('select-all-people','Alle auswählen','text-button')}</div><div class="people-checkboxes">${p.people.map(person=>`<label><input type="checkbox" name="people" value="${esc(person.id)}" ${a.people.includes(person.id)?'checked':''}><i style="background:${person.color}"></i>${esc(person.name)}</label>`).join('')||'<p>Lege zuerst Turnende an.</p>'}</div>
+      <div class="form-grid">${selectField('Gerät / Posten','station_id',option('','Freie Fläche',a.station_id)+p.stations.map(s=>option(s.id,s.name,a.station_id)).join(''))}${selectField('Chef / Einsatz geben','leader_id',option('','Noch offen',a.leader_id||'')+p.people.filter(person=>a.people.includes(person.id)).map(person=>option(person.id,person.name,a.leader_id)).join(''))}</div></details>
+    <details class="exercise-fold"><summary>Start & weitere Angaben <span id="start-summary"></span></summary>
+      <div class="form-grid">${selectField('Abschnitt','section_id',p.sections.map(s=>option(s.id,s.name,a.section_id)).join(''))}${field('Startschlag im Abschnitt','start',a.start+1,'number','min="1" step="0.25" required')}${selectField('Aktionsart','kind',Object.entries(kinds).map(([v,l])=>option(v,l,a.kind)).join(''))}</div>
+      ${textArea('Bemerkung / Regie-Notiz','note',a.note)}<div class="editor-context" id="editor-context"></div>
+      ${old?'<label class="inline-check"><input type="checkbox" name="scale_cues"> Bei geänderter Dauer Schlagmarken proportional verschieben</label>':''}
+      <details class="advanced-elements"><summary>Wettkampf-Auswertung (${a.elements.length} Elemente)</summary>${elementFields(a.elements)}</details>
+      ${a.part_id?'<p class="field-help">Kopie eines Bausteins. Änderungen gelten nur für diese Übung.</p>':''}</details>`,'action',id,old?btn('delete-action','Übung löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  refreshEditorContext();
+  refreshSequenceEditor();
+}
+function refreshEditorContext(){
+  const form=$('#editor form[data-form="action"]');if(!form)return;
+  const people=[...form.querySelectorAll('[name="people"]:checked')].map(el=>el.value),p=state.project;
+  const leader=form.querySelector('[name="leader_id"]'),selected=leader.value;
+  leader.innerHTML=option('','Noch offen','')+p.people.filter(person=>people.includes(person.id)).map(person=>option(person.id,person.name,selected)).join('');
+  const sec=sections(p).find(s=>s.id===form.querySelector('[name="section_id"]').value);
+  $('#assignment-summary').textContent=people.length?`${people.length} Turnende · ${p.stations.find(s=>s.id===form.querySelector('[name="station_id"]').value)?.name||'Freie Fläche'} · Chef: ${p.people.find(p=>p.id===leader.value)?.name||'offen'}`:'Noch keine Turnenden gewählt';
+  $('#start-summary').textContent=`${sec.name} · ab Schlag ${form.querySelector('[name="start"]').value}`;
+  const beat=sec.start+Number(form.querySelector('[name="start"]').value)-1;
+  const all=globalActions(p).filter(a=>a.id!==form.dataset.id);
+  $('#editor-context').innerHTML='<strong>Zusammenhang am geplanten Start</strong>'+people.map(id=>{
+    const person=p.people.find(x=>x.id===id),m=personMoment(p,person,beat,all);
+    return `<p><b>${esc(person.name)}</b> · Davor: ${esc(m.previous.map(a=>a.title).join(' / ')||'Noch keine Übung')}<br><span>Position x ${m.position.x.toFixed(1)} · y ${m.position.y.toFixed(1)} m</span>${m.current.length?`<br><em>Zeitgleich: ${esc(m.current.map(a=>a.title).join(' / '))}</em>`:''}</p>`;
+  }).join('')+(people.length?'':'<p>Turnende auswählen, um vorherige Übungen und Positionen zu sehen.</p>');
 }
 function partEditor(id='',source=null,sourceActionId='') {
   state.partSource=sourceActionId;
   const part=source||state.project.parts.find(p=>p.id===id)||{name:'',beats:8,kind:'apparatus',note:'',cues:[],elements:[]};
-  showModal(id?'Baustein bearbeiten':'Baustein erstellen',`${field('Bausteinname','name',part.name,'text','required maxlength="200"')}<div class="form-grid">${field('Standardlänge in Schlägen','beats',part.beats,'number','min="0.25" max="4096" step="0.25" required')}${selectField('Aktionsart','kind',Object.entries(kinds).map(([v,l])=>option(v,l,part.kind)).join(''))}</div>${textArea('Anweisung','note',part.note)}${cueFields(part.cues)}${elementFields(part.elements)}<p class="field-help">Änderungen an der Vorlage gelten für zukünftige Einfügungen. Bestehende Aktionen behalten ihren Inhalt und ihre Verbindung für die Nutzungszählung.</p>`,'part',id,id?btn('delete-part','Baustein löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  showModal(id?'Baustein bearbeiten':'Baustein erstellen',`${field('Bausteinname','name',part.name,'text','required maxlength="200"')}${simpleSequenceFields(part,part.beats)}<details class="exercise-fold"><summary>Weitere Angaben & Wettkampf-Auswertung</summary>${selectField('Aktionsart','kind',Object.entries(kinds).map(([v,l])=>option(v,l,part.kind)).join(''))}${textArea('Bemerkung','note',part.note)}${elementFields(part.elements)}<p class="field-help">Änderungen an der Vorlage gelten für zukünftige Einfügungen. Bestehende Übungen bleiben unverändert.</p></details>`,'part',id,id?btn('delete-part','Baustein löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  refreshSequenceEditor();
 }
 function sectionEditor(id='') {
   const s=state.project.sections.find(s=>s.id===id)||{name:'',beats:8,bpm:currentSection().bpm,note:''};
@@ -212,15 +269,17 @@ $('#editor').addEventListener('submit',event=>{
   try {
     let change;
     if(type==='action') {
-      const length=num('length'),start=num('start')-1,s=state.project.sections.find(s=>s.id===str('section_id'));
-      if(start+length>s.beats) throw new Error(`Die Aktion endet nach Abschnittsschlag ${s.beats}. Abschnitt verlängern oder Aktion kürzen.`);
+      const length=parseDuration(str('duration_text')),start=num('start')-1,s=state.project.sections.find(s=>s.id===str('section_id'));
+      if(start+length>s.beats&&!data.has('extend_section')) throw new Error(`Die Übung ist länger als der Abschnitt. „Abschnitt auf ${start+length} Schläge verlängern“ bestätigen oder die Dauer kürzen.`);
+      if(start+length>4096)throw new Error('Ein Abschnitt darf höchstens 4096 Schläge lang sein.');
       const people=data.getAll('people');if(!people.length) throw new Error('Wähle mindestens eine Person.');
-      let cues;
-      if(data.has('scale_cues')) {cues=readCues(form,state.editingAction.length);const a={length:state.editingAction.length,cues};scaleAction(a,length);cues=a.cues;} else cues=readCues(form,length);
-      const a={id:id||uid('a'),title:str('title'),section_id:s.id,start,length,kind:str('kind'),station_id:str('station_id'),people,part_id:state.editingAction.part_id,note:str('note'),cues,elements:readElements(form)};
-      change=p=>{if(id)p.actions[p.actions.findIndex(a=>a.id===id)]=a;else p.actions.push(a);state.selected=a.id;state.section=s.id;};
+      if(str('leader_id')&&!people.includes(str('leader_id')))throw new Error('Der Chef muss bei dieser Übung mit ausgewählt sein.');
+      const sequence=data.has('scale_cues')?scaleSequence(str('sequence'),state.editingAction.length,length):str('sequence'),cues=parseSequence(sequence,length);
+      const a={id:id||uid('a'),title:str('title'),section_id:s.id,start,length,kind:str('kind'),station_id:str('station_id'),people,leader_id:str('leader_id'),part_id:state.editingAction.part_id,note:str('note'),sequence,cues,elements:readElements(form)};
+      change=p=>{if(start+length>s.beats)resizeSection(p,s.id,start+length);if(id)p.actions[p.actions.findIndex(a=>a.id===id)]=a;else p.actions.push(a);state.selected=a.id;state.section=s.id;state.beat=sections(p).find(x=>x.id===s.id).start+a.start;};
     } else if(type==='part') {
-      const part={id:id||uid('part'),name:str('name'),beats:num('beats'),kind:str('kind'),note:str('note'),cues:readCues(form,num('beats')),elements:readElements(form)};
+      const beats=parseDuration(str('duration_text')),sequence=str('sequence');
+      const part={id:id||uid('part'),name:str('name'),beats,kind:str('kind'),note:str('note'),sequence,cues:parseSequence(sequence,beats),elements:readElements(form)};
       change=p=>{if(id)p.parts[p.parts.findIndex(x=>x.id===id)]=part;else p.parts.push(part);if(state.partSource){const original=p.actions.find(a=>a.id===state.partSource);if(original)original.part_id=part.id;}};
     } else if(type==='section') {
       change=p=>{if(id){resizeSection(p,id,num('beats'));Object.assign(p.sections.find(s=>s.id===id),{name:str('name'),bpm:num('bpm'),note:str('note')});}else{const s={id:uid('s'),name:str('name'),beats:num('beats'),bpm:num('bpm'),note:str('note')};p.sections.push(s);state.section=s.id;}state.beat=Math.min(state.beat,totalBeats(p));};
@@ -248,7 +307,19 @@ $('#editor').addEventListener('submit',event=>{
 document.addEventListener('click',async event=>{
   const target=event.target.closest('[data-do]');if(!target)return;
   const action=target.dataset.do,id=target.dataset.id,p=state.project;
-  if(action==='tab'){pause();state.tab=id;render();}
+  if(state.positionEdit&&!['cancel-positions','apply-positions'].includes(action))return;
+  if(action==='tab'){pause();state.floorMode='view';state.tab=id;render();}
+  else if(action==='setup'){pause();state.floorMode='view';state.tab='setup';render();}
+  else if(action==='back-writing'){state.floorMode='view';state.tab='program';render();}
+  else if(action==='toggle-layout'){state.floorMode=state.floorMode==='layout'?'view':'layout';renderMain();}
+  else if(action==='edit-station')stationEditor(id);
+  else if(action==='unlock-positions')beginPositionEdit();
+  else if(action==='cancel-positions')endPositionEdit(false);
+  else if(action==='apply-positions')endPositionEdit(true);
+  else if(action==='step')seek(snap(state.beat+Number(target.dataset.step)));
+  else if(action==='event-prev'){const beats=eventBeats(p,state.person);seek(beats.filter(b=>b<state.beat-1e-7).at(-1)??0);}
+  else if(action==='event-next'){seek(eventBeats(p,state.person).find(b=>b>state.beat+1e-7)??totalBeats(p));}
+  else if(action==='write-person'){state.person=id;actionEditor();}
   else if(action==='section'){pause();state.section=id;state.selected=null;seek(sections(p).find(s=>s.id===id).start);renderMain();}
   else if(action==='new-action')actionEditor();
   else if(action==='edit-action')actionEditor(id);
@@ -263,15 +334,16 @@ document.addEventListener('click',async event=>{
   else if(action==='new-part')partEditor();
   else if(action==='edit-part')partEditor(id);
   else if(action==='use-part')actionEditor('',id);
-  else if(action==='action-to-part'){const a=p.actions.find(a=>a.id===id);partEditor('',{name:a.title,beats:a.length,kind:a.kind,note:a.note,cues:clone(a.cues),elements:clone(a.elements)},id);}
+  else if(action==='action-to-part'){const a=p.actions.find(a=>a.id===id);partEditor('',{name:a.title,beats:a.length,kind:a.kind,note:a.note,sequence:sequenceText(a),cues:clone(a.cues),elements:clone(a.elements)},id);}
+  else if(action==='duration-preset'){$('#editor [name="duration_text"]').value=durationText(Number(target.dataset.length));refreshSequenceEditor();}
   else if(action==='duplicate-action'){mutate(p=>{const a=clone(p.actions.find(a=>a.id===id));a.id=uid('a');p.actions.push(a);state.selected=a.id;});actionEditor(state.selected);}
   else if(action==='settings')settingsEditor();
-  else if(action==='close-modal')$('#editor').close();
+  else if(action==='close-modal'){$('#editor').close();renderMain();}
   else if(action==='add-cue')$('#cue-fields').insertAdjacentHTML('beforeend',cueRow());
   else if(action==='add-element')$('#element-fields').insertAdjacentHTML('beforeend',elementRow());
   else if(action==='add-position')$('#position-fields').insertAdjacentHTML('beforeend',positionRow({beat:snap(state.beat),x:1,y:1,transition:'linear'}));
   else if(action==='remove-row')target.parentElement.remove();
-  else if(action==='select-all-people')document.querySelectorAll('#editor [name=people]').forEach(el=>el.checked=true);
+  else if(action==='select-all-people'){document.querySelectorAll('#editor [name=people]').forEach(el=>el.checked=true);refreshEditorContext();}
   else if(action.startsWith('delete-'))handleDelete(action.slice(7),id);
   else if(action==='filter-person'){state.person=state.person===id?'':id;renderMain();}
   else if(action==='seek-beat')seek(Number(target.dataset.beat));
@@ -298,7 +370,7 @@ function handleDelete(type,id) {
     if(type==='action'){p.actions=p.actions.filter(a=>a.id!==id);state.selected=null;}
     if(type==='part'){p.parts=p.parts.filter(a=>a.id!==id);p.actions.forEach(a=>{if(a.part_id===id)a.part_id='';});}
     if(type==='station'){if(p.actions.some(a=>a.station_id===id))throw new Error('Der Posten wird noch in Aktionen verwendet. Zuerst deren Zuordnung ändern.');p.stations=p.stations.filter(s=>s.id!==id);}
-    if(type==='person'){p.people=p.people.filter(x=>x.id!==id);p.actions.forEach(a=>a.people=a.people.filter(x=>x!==id));p.actions=p.actions.filter(a=>a.people.length);if(state.person===id)state.person='';}
+    if(type==='person'){p.people=p.people.filter(x=>x.id!==id);p.actions.forEach(a=>{a.people=a.people.filter(x=>x!==id);if(a.leader_id===id)a.leader_id='';});p.actions=p.actions.filter(a=>a.people.length);if(state.person===id)state.person='';}
     if(type==='section'){
       if(p.sections.length===1)throw new Error('Mindestens ein Abschnitt muss bestehen bleiben.');
       const s=sections(p).find(x=>x.id===id),end=s.start+s.beats;
@@ -310,6 +382,10 @@ function handleDelete(type,id) {
 }
 document.addEventListener('change',event=>{
   const el=event.target;
+  if(el.closest('#editor form[data-form="action"]')&&['people','start','section_id','station_id','leader_id'].includes(el.name))refreshEditorContext();
+  if(el.closest('#editor')&&['duration_text','sequence','scale_cues','start','section_id'].includes(el.name))refreshSequenceEditor();
+  if(el.id==='beat-input') {if(el.value&&el.validity.valid)seek(snap(Number(el.value)-1));else el.value=snap(state.beat)+1;}
+  if(el.id==='insert-part'&&el.value)actionEditor('',el.value);
   if(el.id==='floor-mode'){pause();state.floorMode=el.value;renderMain();}
   if(el.id==='transition')state.transition=el.value;
   if(el.id==='person-filter'){state.person=el.value;renderMain();}
@@ -317,14 +393,18 @@ document.addEventListener('change',event=>{
   if(el.id==='scrubber')seek(Number(el.value),true);
   if(el.dataset.check)mutate(p=>p.checklist[el.dataset.check]=el.checked);
 });
-document.addEventListener('input',event=>{if(event.target.id==='scrubber')seek(Number(event.target.value),false);});
+document.addEventListener('input',event=>{if(event.target.id==='scrubber')seek(Number(event.target.value),false);if(event.target.closest('#editor')&&['duration_text','sequence'].includes(event.target.name))refreshSequenceEditor();});
+$('#editor').addEventListener('invalid',event=>{let el=event.target.parentElement;while(el&&el!==$('#editor')){if(el.tagName==='DETAILS')el.open=true;el=el.parentElement;}},true);
 function seek(beat,follow=true) {
+  if(state.positionEdit)return;
   pause();state.beat=clamp(beat,0,totalBeats(state.project));
   if(state.audioReady)audio.currentTime=Math.min(audio.duration,beatToSeconds(state.project,state.beat)+state.project.music.offset);
   const s=sections(state.project).find(s=>state.beat>=s.start&&state.beat<s.start+s.beats);
   if(follow&&s&&s.id!==state.section){state.section=s.id;state.selected=null;renderMain();}else updateLive();
 }
 async function play() {
+  if(state.positionEdit)return;
+  state.floorMode='view';
   if(state.beat>=totalBeats(state.project))state.beat=0;
   if(state.audioReady){audio.currentTime=beatToSeconds(state.project,state.beat)+state.project.music.offset;try{await audio.play();}catch {toast('Musik konnte nicht abgespielt werden. Wähle eine unterstützte Audiodatei.');return;}}
   state.playing=true;playbackOrigin={clock:performance.now(),seconds:beatToSeconds(state.project,state.beat)};
@@ -363,41 +443,65 @@ $('#import-file').addEventListener('change',async event=>{
 function safeName(name){return name.replace(/[^a-zA-Z0-9äöüÄÖÜ_-]+/g,'-');}
 function download(name,content,type){const url=URL.createObjectURL(new Blob([content],{type}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function exportCsv() {
-  const p=state.project,rows=[['Turner','Abschnitt','Aktion','Art','Posten','Programmstart Sekunden','Musikstart Sekunden','Absoluter Startschlag','Zählgruppe','Schlag in Gruppe','Dauer Schläge','Auftrag','Schlagnotizen (absolut)']];
-  for(const person of p.people.filter(p=>!state.person||state.person===p.id))for(const a of globalActions(p).filter(a=>a.people.includes(person.id)))rows.push([person.name,a.section.name,a.title,kinds[a.kind],p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche',beatToSeconds(p,a.globalStart).toFixed(2),(beatToSeconds(p,a.globalStart)+p.music.offset).toFixed(2),a.globalStart+1,Math.floor(a.globalStart/p.phrase)+1,a.globalStart%p.phrase+1,a.length,a.note,a.cues.map(c=>`${a.globalStart+c.beat+1}: ${c.text}`).join(' | ')]);
+  const p=state.project,rows=[['Turner','Abschnitt','Aktion','Art','Posten','Chef','Programmstart Sekunden','Musikstart Sekunden','Absoluter Startschlag','Zählgruppe','Schlag in Gruppe','Dauer Schläge','Auftrag','Schlagnotizen (absolut)']];
+  for(const person of p.people.filter(p=>!state.person||state.person===p.id))for(const a of globalActions(p).filter(a=>a.people.includes(person.id)))rows.push([person.name,a.section.name,a.title,kinds[a.kind],p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche',chiefLabel(p,a),beatToSeconds(p,a.globalStart).toFixed(2),(beatToSeconds(p,a.globalStart)+p.music.offset).toFixed(2),a.globalStart+1,Math.floor(a.globalStart/p.phrase)+1,a.globalStart%p.phrase+1,a.length,a.note,a.cues.map(c=>`${a.globalStart+c.beat+1}: ${c.text}`).join(' | ')]);
   // Escape spreadsheet formula prefixes as well as CSV quoting.
   const encode=v=>'"'+String(v).replace(/^[=+@\-\t\r]/,"'$&").replace(/"/g,'""')+'"';
   download(`${safeName(p.name)}-ablauf.csv`,'\uFEFF'+rows.map(r=>r.map(encode).join(';')).join('\r\n'),'text/csv;charset=utf-8');
 }
 function undo(){if(!state.history.length)return;pause();state.future.push(clone(state.project));state.project=state.history.pop();state.version++;state.section=state.project.sections.some(s=>s.id===state.section)?state.section:state.project.sections[0].id;state.person=state.project.people.some(p=>p.id===state.person)?state.person:'';state.beat=Math.min(state.beat,totalBeats(state.project));state.status='Änderungen werden gespeichert …';render();scheduleSave();}
-document.addEventListener('keydown',event=>{if(event.target.matches('input,textarea,select')||$('#editor').open)return;if((event.ctrlKey||event.metaKey)&&event.key==='z'){event.preventDefault();undo();}if(event.code==='Space'){event.preventDefault();state.playing?pause():play();}});
-window.addEventListener('beforeunload',event=>{if(state.savedVersion!==state.version){event.preventDefault();event.returnValue='';}});
+document.addEventListener('keydown',event=>{if(state.positionEdit){if(event.key==='Escape'){event.preventDefault();endPositionEdit(false);}return;}if(event.target.matches('input,textarea,select')||$('#editor').open)return;if((event.ctrlKey||event.metaKey)&&event.key==='z'){event.preventDefault();undo();}if(event.code==='Space'&&!event.target.matches('button')){event.preventDefault();state.playing?pause():play();}});
+$('#editor').addEventListener('cancel',()=>renderMain());
+window.addEventListener('beforeunload',event=>{if(state.savedVersion!==state.version||state.positionEdit?.dirty){event.preventDefault();event.returnValue='';}});
 
+function beginPositionEdit(){
+  pause();state.beat=snap(state.beat);state.floorMode='positions';
+  state.positionEdit={before:clone(state.project),beat:state.beat,dirty:false};
+  render();
+}
+function endPositionEdit(apply){
+  const edit=state.positionEdit;if(!edit)return;
+  drag=null;state.positionEdit=null;state.floorMode='view';
+  if(apply&&edit.dirty){markChanged(edit.before);toast('Positionen übernommen und wieder gesperrt.');}
+  else {state.project=edit.before;render();if(!apply)toast('Positionsvorschau verworfen.');}
+}
 document.addEventListener('pointerdown',event=>{
+  if(event.button!==0)return;
   const target=event.target.closest('[data-drag]');if(!target)return;
   const type=target.dataset.drag,id=target.dataset.id;
-  const editable=type==='station'?state.floorMode==='layout':state.floorMode==='positions';
-  pause();drag={type,id,editable,before:clone(state.project),moved:false,x:event.clientX,y:event.clientY,el:target,svg:$('#stage')};
+  const editable=type==='station'?(state.tab==='setup'&&state.floorMode==='layout'):!!state.positionEdit;
+  const svg=$('#stage'),matrix=svg.getScreenCTM();if(!matrix)return;
+  const point=new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());
+  const original=type==='station'?state.project.stations.find(s=>s.id===id):positionAt(state.project.people.find(p=>p.id===id),state.beat);
+  pause();drag={type,id,editable,before:clone(state.project),moved:false,x:event.clientX,y:event.clientY,el:target,svg,offsetX:original.x-point.x/40,offsetY:original.y-point.y/40};
   if(editable){target.setPointerCapture(event.pointerId);event.preventDefault();}
 });
 document.addEventListener('pointermove',event=>{
   if(!drag?.editable)return;
-  if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<3&&!drag.moved)return;
+  if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<6&&!drag.moved)return;
   drag.moved=true;const matrix=drag.svg.getScreenCTM();if(!matrix)return;
   const point=new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());
-  const x=Math.round(clamp(point.x/40,0,state.project.floor.width)*10)/10,y=Math.round(clamp(point.y/40,0,state.project.floor.height)*10)/10;
+  const x=Math.round(clamp(point.x/40+drag.offsetX,0,state.project.floor.width)*10)/10;
+  const y=Math.round(clamp(point.y/40+drag.offsetY,0,state.project.floor.height)*10)/10;
   if(drag.type==='station')Object.assign(state.project.stations.find(s=>s.id===drag.id),{x,y});
-  else setFrame(state.project.people.find(p=>p.id===drag.id),snap(state.beat),x,y,state.transition);
+  else setFrame(state.project.people.find(p=>p.id===drag.id),state.positionEdit.beat,x,y,state.transition);
   drag.el.setAttribute('transform',`translate(${x*40} ${y*40})`);
 });
 document.addEventListener('pointerup',()=>{
   if(!drag)return;const d=drag;drag=null;
-  if(d.moved)markChanged(d.before);
-  else if(d.type==='station'&&state.floorMode==='layout')stationEditor(d.id);
-  else if(d.type==='person'){state.person=state.person===d.id?'':d.id;renderMain();}
+  if(d.moved){
+    if(d.type==='person'){state.positionEdit.dirty=true;renderMain();}
+    else markChanged(d.before);
+  }
+  else if(d.type==='station'&&d.editable)stationEditor(d.id);
+  else if(d.type==='person'&&!state.positionEdit){state.person=state.person===d.id?'':d.id;renderMain();}
 });
-document.addEventListener('pointercancel',()=>{if(drag){state.project=drag.before;drag=null;renderMain();}});
-function help(){showModal('So planst du dein Programm',`<ol class="help-steps"><li><b>Riege und Fläche einrichten.</b> Unter „Turnende“ Namen erfassen; in den Einstellungen Barrenanzahl und Flächengrösse setzen.</li><li><b>Geräte aufstellen.</b> In der Aufstellung „Geräte verschieben“ wählen. Barren ziehen oder anklicken, um ihre Drehung einzustellen.</li><li><b>Abschnitte und Aktionen schreiben.</b> Länge und Tempo pro Abschnitt festlegen. Aktionen ordnen Turnende, Gerät, Einsatz und Schlagnotizen zu.</li><li><b>Wege zeichnen.</b> Zeitregler auf den Wegbeginn stellen, „Positionen setzen“ wählen und die Person platzieren. Am Ankunftsschlag erneut platzieren. Der Weg wird dazwischen linear dargestellt. Für Standphasen „Bis dahin stehen bleiben“ wählen.</li><li><b>Bausteine wiederverwenden.</b> Eine Aktion als Baustein sichern und mit anderer Besetzung erneut einfügen. Im Baustein kann die Zählberechtigung einzelner Elemente erfasst werden.</li><li><b>Proben und ausgeben.</b> Musik laden, den ersten Schlag über den Musikversatz ausrichten und abspielen. Unter „Turnende“ filtern, drucken oder CSV exportieren.</li></ol><p>Die Uhrzeit wird aus BPM berechnet; variable Tempi werden über separate Abschnitte abgebildet. Positionen sind schematisch, ohne automatische Gerätebindung oder Kollisionsprüfung. Die Demonstration ist keine geprüfte Wettkampfübung.</p><p><b>Speicherung:</b> Automatisch lokal in SQLite. JSON-Sicherungen enthalten das ganze Programm ohne Musik. Ctrl+Z macht Bearbeitungen rückgängig; Leertaste startet oder pausiert.</p>`,'help');const footer=$('#editor .modal-footer');footer.innerHTML=btn('close-modal','Verstanden','primary');}
+function cancelDrag(){
+  if(drag){state.project=drag.before;drag=null;renderMain();}
+}
+document.addEventListener('pointercancel',cancelDrag);
+window.addEventListener('blur',cancelDrag);
+function help(){showModal('Programm schreiben – so geht’s',`<ol class="help-steps"><li><b>Einmal einrichten.</b> Unter „Geräteaufstellung“ Barrenanzahl, Fläche und Gerätepositionen festlegen. Geräte erst mit „Geräte bearbeiten“ entsperren. Die Aufstellung gilt für das ganze Programm und bleibt jederzeit änderbar.</li><li><b>Zeitpunkt wählen.</b> Einen Abschnitt, einen absoluten Schlag oder „Nächster Einsatz“ wählen. „Davor – Jetzt – Danach“ zeigt für jede Person den Zusammenhang über Abschnittsgrenzen hinweg.</li><li><b>Übung schreiben.</b> Am aktuellen Schlag eine Übung oder einen Baustein einfügen. Turnende, Dauer, Gerät und Chef auswählen. Im Editor bleiben vorherige Einsätze und die Position am geplanten Start sichtbar.</li><li><b>Positionen bewusst ändern.</b> „Positionen bearbeiten“ öffnet eine Vorschau am gewählten Schlag. Punkte mit der Maus ziehen und anschliessend „Übernehmen & sperren“ wählen. „Verwerfen“ oder Escape setzt die Vorschau zurück. Währenddessen bleibt der Zeitpunkt fest.</li><li><b>Wege planen.</b> Einen Punkt am Wegbeginn und einen am Ankunftsschlag setzen. „Weg von vorheriger Position“ verbindet die Punkte. „Vorherige Position bis hier halten“ zeigt einen Positionswechsel erst am Zielschlag. Die Übersicht nennt tatsächliche geplante Koordinaten; der zugeteilte Posten steht separat bei der Übung.</li><li><b>Chef und Notizen lesen.</b> Der Chef gilt nur für seinen Einsatz und ist währenddessen mit ★ auf dem Feld markiert. Leere Zuständigkeiten werden als „Noch offen“ angezeigt. Schlagnotizen erscheinen bei der laufenden Übung.</li></ol><p>Die Zeitleiste ist unter der Schreibansicht aufklappbar. Persönliche Ablaufpläne, Druck und CSV bleiben unter „Turnende“ verfügbar. Ctrl+Z macht gespeicherte Bearbeitungen rückgängig.</p>`,'help');$('#editor .modal-footer').innerHTML=btn('close-modal','Verstanden','primary');}
 async function init(){
   try {
     const response=await fetch('/api/project');if(!response.ok)throw new Error('Server antwortet nicht.');const data=await response.json();Object.assign(state,data);state.section=state.project.sections[0].id;state.status='Lokal gespeichert';render();

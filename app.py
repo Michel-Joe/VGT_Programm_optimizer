@@ -63,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.store.read())
         if url == "/api/health":
             return self.respond(200, {"ok": True})
-        allowed = {"/": "index.html", "/app.js": "app.js", "/domain.js": "domain.js", "/style.css": "style.css"}
+        allowed = {"/": "index.html", "/app.js": "app.js", "/domain.js": "domain.js", "/style.css": "style.css", "/writer.js": "writer.js", "/writer.css": "writer.css", "/exercise.js": "exercise.js"}
         if url not in allowed:
             return self.respond(404, {"error": "Nicht gefunden"})
         path = ROOT / "static" / allowed[url]

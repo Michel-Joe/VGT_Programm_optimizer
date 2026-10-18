@@ -127,6 +127,7 @@ def validate_project(p):
     for part in p["parts"]:
         string(part.get("name"), "Bausteinname")
         string(part.get("note"), "Bausteinnotiz")
+        if "sequence" in part: string(part["sequence"], "Elementfolge")
         number(part.get("beats"), "Bausteinlänge", 0.25, 4096, True)
         if part.get("kind") not in ["apparatus", "side", "travel", "pose"]: fail("Unbekannte Aktionsart.")
         cues(part.get("cues"), part["beats"])
@@ -139,9 +140,13 @@ def validate_project(p):
         if a["start"] + a["length"] > section_map[a["section_id"]]["beats"]: fail("Aktion reicht über das Abschnittsende hinaus. Abschnitt zuerst verlängern.")
         persons = a.get("people")
         if not isinstance(persons, list) or not persons or any(not isinstance(x,str) or x not in ids["people"] for x in persons) or len(set(persons)) != len(persons): fail("Jede Aktion braucht gültige, eindeutige Turnende.")
+        leader = a.get("leader_id", "")
+        if not isinstance(leader, str) or (leader and leader not in persons):
+            fail("Der Chef muss bei dieser Aktion als turnende Person ausgewählt sein.")
         if a.get("station_id") and a["station_id"] not in ids["stations"]: fail("Posten fehlt.")
         if a.get("part_id") and a["part_id"] not in ids["parts"]: fail("Baustein fehlt.")
         for k in ["station_id", "part_id", "title", "note"]: string(a.get(k), k)
+        if "sequence" in a: string(a["sequence"], "Elementfolge")
         if a.get("kind") not in ["apparatus", "side", "travel", "pose"]: fail("Unbekannte Aktionsart.")
         cues(a.get("cues"), a["length"])
         elements(a.get("elements"))

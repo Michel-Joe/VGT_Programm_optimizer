@@ -28,13 +28,25 @@ Beim ersten Start wird ein deutlich als Beispiel beschriebenes Programm mit acht
 - Automatisch speichern, Änderungen rückgängig machen, vollständige Projekte als JSON sichern/importieren.
 - Überlappende Aufträge derselben Person, unverplante Schläge, Elementvielfalt, Musikdauer, Gruppengrösse und Barrenanzahl prüfen.
 
+## Schreibansicht (Version 02)
+
+Die Hauptansicht ist ein Trainer-Arbeitsplatz: **Davor – Jetzt – Danach** zeigt die letzten abgeschlossenen, aktuell laufenden und nächsten Übungen je Turner, auch über Abschnittsgrenzen hinweg. Ohne Auftrag wird eine Lücke angezeigt; gleichzeitige Aufträge bleiben sichtbar. Die Koordinaten unter dem Namen entsprechen der geplanten Position auf dem gewählten Schlag. Der zugeteilte Posten steht separat bei der Übung.
+
+Ein Feld für den absoluten Schlag, Einzelschritte und die Navigation zum nächsten/vorherigen Einsatz steuern Übersicht und Feld gemeinsam. Die Einsatznavigation berücksichtigt auch Schlagnotizen und Positionspunkte. Neue Übungen werden am aktuellen Schlag begonnen; die Zeitleiste ist bei Bedarf aufklappbar.
+
+**Chef** wird pro Aktion aus deren beteiligten Turnenden gewählt. Die Rolle wird in der Übersicht, im Detail, im persönlichen Ablauf und im CSV angezeigt. Während des Einsatzes markiert ein Stern die Person auf dem Feld. Bestehende Programme bleiben gültig und zeigen ohne Zuweisung „Noch offen“.
+
+**Positionsschutz:** Im Normalmodus wählt ein Klick nur einen Turner aus. Erst „Positionen bearbeiten“ aktiviert das Ziehen. Mehrere Änderungen können am festgehaltenen Schlag in der Vorschau ausprobiert werden. „Übernehmen & sperren“ speichert sie gemeinsam; „Verwerfen“ oder Escape stellt den vorherigen Stand wieder her. Während der Vorschau sind Navigation und andere Bearbeitungen gesperrt. Kleine Mausbewegungen unter sechs Pixeln gelten nicht als Ziehen. Ein Rückgängig-Schritt setzt eine übernommene Positionsbearbeitung zurück.
+
+Die **Geräteaufstellung** ist eine separate Einrichtung pro Programm. Geräte sind dort zunächst ebenfalls gesperrt; Änderungen wirken auf alle Schläge. Bestehende Turnerpositionen werden beim Verschieben eines Geräts nicht mitverschoben.
+
 ## Empfohlener Ablauf
 
 1. In den Einstellungen Programmname, Verein, Fläche, Barrenanzahl und Zählgruppe festlegen.
 2. Unter **Turnende** die Riege erfassen.
-3. Im Programm die Aufstellung auf **Geräte verschieben** umstellen. Ein Klick öffnet genaue Koordinaten und Drehung.
+3. **Geräteaufstellung → Geräte bearbeiten** wählen. Ein Klick auf ein Gerät öffnet genaue Koordinaten und Drehung; Ziehen verschiebt es. Anschliessend zurück zum Schreiben wechseln.
 4. Abschnitte anlegen und für jeden Abschnitt Aktionen schreiben. Alle Schläge im Aktionseditor sind relativ zum Abschnitt, Schlagnotizen relativ zur Aktion.
-5. Für einen Weg den Zeitregler auf den Wegbeginn stellen und unter **Positionen setzen** den Turner platzieren. Am Ankunftsschlag erneut platzieren. Für eine Standphase am Ende der Standphase einen Punkt mit **Bis dahin stehen bleiben** setzen. Alle Punkte sind unter **Turnende → Positionen** numerisch editierbar und löschbar.
+5. Für einen Weg den Zeitregler auf den Wegbeginn stellen und **Positionen bearbeiten** wählen. Turner ziehen, dann **Übernehmen & sperren**. Am Ankunftsschlag erneut platzieren und übernehmen. Für Standphasen den Übergang **Vorherige Position bis hier halten** nutzen. Alle Punkte sind unter **Turnende → Positionen** auch numerisch editierbar und löschbar.
 6. Wiederkehrende Aktionen **Als Baustein** speichern. Unter **Bausteine** erneut einfügen und Besetzung/Posten wählen.
 7. Musik laden. In den Einstellungen den Zeitpunkt des ersten gezählten Schlags im Musikstück setzen. Ein Tempo pro Abschnitt; Tempoänderungen erfordern neue Abschnitte.
 8. Person filtern und Ablauf drucken. Im Programmcheck offene Angaben ergänzen und manuelle Prüfpunkte bearbeiten.
@@ -80,7 +92,7 @@ Die Elementnamen sind frei eingegeben. Die Software hat keinen offiziellen Eleme
 
 ```powershell
 python -m unittest discover -s tests -v
-node --test tests/domain.test.mjs
+node --test tests/*.test.mjs
 ```
 
 Die Tests decken Speicherung mit konkurrierenden Revisionen, Importvalidierung, Tempoänderungen, Elementzählung, parallele Aktionen, Musiklimits, Positionsinterpolation und das Verschieben von Positionen bei Abschnittsänderungen ab.
@@ -92,6 +104,8 @@ app.py                 Lokaler HTTP-Server und SQLite-Speicher
 planner.py             Beispieldaten, Validierung und Auswertung
 static/index.html      App-Einstieg
 static/app.js          Oberfläche, Bearbeitung und Wiedergabe
+static/writer.js       Schreibansicht, Einsatzkontext und Geräteaufstellung
+static/writer.css      Trainer-Arbeitsplatz und responsive Darstellung
 static/domain.js       Zeit- und Positionsmodell
 static/style.css       Gestaltung und Drucklayout
 tests/                 Python- und JavaScript-Tests

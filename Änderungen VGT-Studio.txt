@@ -1,0 +1,14 @@
+Änderungen VGT-Studio
+
+- Bei Löschen von Geräten/Turnern/Übungen keine zusätzliche Anfrage einfach 
+- eine in welcher ganz einfach alle Übungen gesehen werden können
+- Bei Programmeinstellungen, Wettkampfform nicht nötig, erster Schlag nicht Nötig, Schläge, vielleicht könnte noch das Gerät eingetragen werden
+- Wenn eine Übung erstellt/Bearbeitet wird, muss ich jeden Turner direkt an das Korrekte Gerät setzen können
+- Schlagmarken nicht nötig
+- Es kann vorkommen das eine Übung z.B. 2x8 + 1x4 schläge dauert, dies möchte ich auch berücksichtigen können
+- Abschnitte können nicht bearbeitet werden, wenn sie einmal erstellt worden sind
+- Abschnitt soll nicht in Anzahl Schlägen, sondern in Anzahl nx8 aufgeteilt werden
+- wenn ich das Programm für die Turnenden exportiere, ist es für sie Wichtig, das sie Wissen welche Übung sie haben und wann und vorallem muss dem Turner klar sein wie die Übung aufgebaut ist also die Elementefolge muss zwingend exporiert werden, am besten ein einem Einfachen Übersichtlichen Format als PDF oder ähnlichem. 
+- Alle Geräte also Trampolin, Matten dünn, Matten dick, 16er, Kasten müssen aufgezeichnet werden können.
+- Besser die Ansichten aufteilen sodass zum einen das Feld gross ist zum anderen eine klaer überungübersicht. 
+- die genaue x/y Position in Metern ist nicht notwendig 
