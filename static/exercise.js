@@ -1,6 +1,7 @@
 // A compact, paper-like editor: explicit counts are timed, prose stays untimed.
 export function durationText(beats) {
-  return beats % 8 === 0 ? `${beats / 8}x8` : String(beats);
+  const eights=Math.floor(beats/8),rest=beats%8;
+  return rest===0?`${eights}x8`:eights?`${eights}x8 + 1x${rest}`:`1x${rest}`;
 }
 export function parseDuration(text) {
   const terms=String(text).trim().replaceAll('×','x').replaceAll(',','.').split('+');
@@ -12,6 +13,9 @@ export function parseDuration(text) {
 }
 export function sequenceText(item) {
   return item.sequence ?? item.cues.map(c=>`${c.beat+1} ${c.text}`).join('\n');
+}
+export function freeSequence(item) {
+  return sequenceLines(item.sequence||'').filter(l=>l.beat===null).map(l=>l.text).join('\n');
 }
 export function sequenceLines(text) {
   return String(text).split(/\r?\n/).map((raw,index)=>{

@@ -41,7 +41,7 @@ export function setFrame(person, beat, x, y, transition='linear') {
 export function resizeSection(p, id, length) {
   const s = sections(p).find(s => s.id === id);
   if (!s) throw new Error('Abschnitt nicht gefunden.');
-  if (p.actions.some(a => a.section_id === id && a.start+a.length > length)) throw new Error('Zuerst die Aktionen kürzen, die über das neue Abschnittsende reichen.');
+  if (p.actions.some(a => a.section_id === id && actionEnd(a) > length)) throw new Error('Zuerst die Aktionen oder Kanon-Einsätze kürzen, die über das neue Abschnittsende reichen.');
   const oldEnd = s.start+s.beats, newEnd = s.start+length, delta = length-s.beats;
   if (delta < 0 && p.people.some(person => person.frames.some(f => f.beat >= newEnd && f.beat < oldEnd))) throw new Error('Im gekürzten Bereich liegen gespeicherte Positionen. Diese zuerst in der Personenansicht entfernen.');
   for (const person of p.people) person.frames.forEach(f => { if (f.beat >= oldEnd) f.beat += delta; });
@@ -50,6 +50,19 @@ export function resizeSection(p, id, length) {
 export function globalActions(p) {
   const map = Object.fromEntries(sections(p).map(s => [s.id,s]));
   return p.actions.map(a => ({...a, globalStart:map[a.section_id].start+a.start, section:map[a.section_id]})).sort((a,b) => a.globalStart-b.globalStart);
+}
+export function assignment(a,personId) {
+  return a.assignments?.find(x=>x.person_id===personId)||{person_id:personId,station_id:a.station_id||'',offset:0};
+}
+export function actionEnd(a) {
+  return a.start+a.length+Math.max(0,...(a.assignments||[]).map(x=>x.offset));
+}
+export function forPerson(a,personId) {
+  const seat=assignment(a,personId);
+  return {...a,start:a.start+seat.offset,globalStart:a.globalStart===undefined?undefined:a.globalStart+seat.offset,station_id:seat.station_id,offset:seat.offset};
+}
+export function personActions(p,personId) {
+  return globalActions(p).filter(a=>a.people.includes(personId)).map(a=>forPerson(a,personId)).sort((a,b)=>a.globalStart-b.globalStart);
 }
 export function scaleAction(a, length) {
   const factor = length/a.length;
@@ -70,7 +83,7 @@ export function countLabel(p, beat) {
 
 // Intervals are half-open: a handover at the exact end belongs to the next action.
 export function personMoment(project, person, beat, all=globalActions(project)) {
-  const actions=all.filter(a=>a.people.includes(person.id));
+  const actions=all.filter(a=>a.people.includes(person.id)).map(a=>forPerson(a,person.id));
   const ended=actions.filter(a=>a.globalStart+a.length<=beat);
   const lastEnd=Math.max(-Infinity,...ended.map(a=>a.globalStart+a.length));
   const future=actions.filter(a=>a.globalStart>beat);
@@ -90,7 +103,7 @@ export function cueAt(action, beat) {
 
 export function eventBeats(project, personId='') {
   const events=new Set([0,totalBeats(project),...sections(project).map(s=>s.start)]);
-  for(const action of globalActions(project).filter(a=>!personId||a.people.includes(personId))) {
+  for(const action of project.people.filter(p=>!personId||p.id===personId).flatMap(p=>personActions(project,p.id))) {
     events.add(action.globalStart);events.add(action.globalStart+action.length);
     action.cues.forEach(c=>events.add(action.globalStart+c.beat));
   }

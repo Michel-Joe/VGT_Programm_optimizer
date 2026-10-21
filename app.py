@@ -2,7 +2,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from contextlib import closing
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import argparse
 import json
 import mimetypes
@@ -63,7 +63,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, self.server.store.read())
         if url == "/api/health":
             return self.respond(200, {"ok": True})
+        if url == "/api/export.pdf":
+            try:
+                from pdf_export import export_program
+                person_id = parse_qs(urlparse(self.path).query).get("person", [""])[0]
+                return self.respond(200, export_program(self.server.store.read()["project"], person_id), "application/pdf")
+            except ImportError:
+                return self.respond(503, {"error": "PDF-Export benötigt reportlab. Installiere die Pakete aus requirements.txt oder nutze Drucken / Als PDF speichern."})
+            except ValueError as error:
+                return self.respond(400, {"error": str(error)})
         allowed = {"/": "index.html", "/app.js": "app.js", "/domain.js": "domain.js", "/style.css": "style.css", "/writer.js": "writer.js", "/writer.css": "writer.css", "/exercise.js": "exercise.js"}
+        allowed.update({"/overview.js": "overview.js", "/equipment.js": "equipment.js"})
         if url not in allowed:
             return self.respond(404, {"error": "Nicht gefunden"})
         path = ROOT / "static" / allowed[url]

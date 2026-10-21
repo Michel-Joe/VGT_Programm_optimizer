@@ -1,0 +1,2 @@
+# Optional for direct PDF downloads; the planner itself uses Python's stdlib.
+reportlab>=4.0,<5

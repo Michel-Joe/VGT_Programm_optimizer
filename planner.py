@@ -47,6 +47,19 @@ def demo_project():
         "checklist": {"music": False, "paths": False, "formations": False, "safety": False, "material": False}, "notes": "Demoprogramm – keine fertig geprüfte Wettkampfübung."}
 
 
+STATION_KINDS = {"bar", "side", "trampoline", "mat_thin", "mat_thick", "mat16", "box"}
+
+
+def participant_assignment(action, person_id):
+    return next((x for x in action.get("assignments", []) if x["person_id"] == person_id),
+                {"person_id": person_id, "station_id": action.get("station_id", ""), "offset": 0})
+
+
+def participant_action(action, person_id):
+    seat = participant_assignment(action, person_id)
+    return {**action, "start": action["start"] + seat["offset"], "station_id": seat["station_id"]}
+
+
 def validate_project(p):
     def fail(msg):
         raise ValueError(msg)
@@ -123,7 +136,9 @@ def validate_project(p):
         string(station.get("name"), "Postenname")
         position(station)
         number(station.get("rotation"), "Drehung", -360, 360)
-        if station.get("kind") not in ["bar", "side"]: fail("Unbekannter Postentyp.")
+        if station.get("kind") not in STATION_KINDS: fail("Unbekannter Postentyp.")
+        for dimension in ("width", "depth"):
+            if dimension in station: number(station[dimension], "Gerätegrösse", .2, 12)
     for part in p["parts"]:
         string(part.get("name"), "Bausteinname")
         string(part.get("note"), "Bausteinnotiz")
@@ -143,6 +158,19 @@ def validate_project(p):
         leader = a.get("leader_id", "")
         if not isinstance(leader, str) or (leader and leader not in persons):
             fail("Der Chef muss bei dieser Aktion als turnende Person ausgewählt sein.")
+        if "assignments" in a:
+            seats = a["assignments"]
+            if not isinstance(seats, list) or len(seats) != len(persons): fail("Gerätezuordnung für jede turnende Person erforderlich.")
+            seen = set()
+            for seat in seats:
+                obj(seat)
+                person_id = seat.get("person_id")
+                if not isinstance(person_id, str) or person_id not in persons or person_id in seen: fail("Ungültige/doppelte Turnerzuordnung.")
+                seen.add(person_id)
+                string(seat.get("station_id"), "Gerätezuordnung")
+                if seat["station_id"] and seat["station_id"] not in ids["stations"]: fail("Zugeordnetes Gerät fehlt.")
+                number(seat.get("offset"), "Kanon-Versatz", 0, 4096, True)
+                if a["start"] + seat["offset"] + a["length"] > section_map[a["section_id"]]["beats"]: fail("Kanon-Einsatz reicht über das Abschnittsende hinaus.")
         if a.get("station_id") and a["station_id"] not in ids["stations"]: fail("Posten fehlt.")
         if a.get("part_id") and a["part_id"] not in ids["parts"]: fail("Baustein fehlt.")
         for k in ["station_id", "part_id", "title", "note"]: string(a.get(k), k)
@@ -164,7 +192,7 @@ def analyse(p):
     stations = {s["id"]: s for s in p["stations"]}
     warnings, person_stats = [], []
     for person in p["people"]:
-        actions = sorted([a for a in p["actions"] if person["id"] in a["people"]], key=lambda a: starts[a["section_id"]] + a["start"])
+        actions = sorted([participant_action(a, person["id"]) for a in p["actions"] if person["id"] in a["people"]], key=lambda a: starts[a["section_id"]] + a["start"])
         unique = set()
         furthest_end, previous = -1, None
         for a in actions:

@@ -4,7 +4,7 @@ Lokaler Prototyp zum Schreiben, Lesen und Proben eines Barrenprogramms im Verein
 
 ## Starten
 
-Python **3.10 oder neuer** genügt. Im Projektordner:
+Python **3.10 oder neuer** genügt für die App. Für den direkten PDF-Export der persönlichen Abläufe zusätzlich einmal `python -m pip install -r requirements.txt` ausführen. Im Projektordner:
 
 ```powershell
 python app.py
@@ -16,7 +16,7 @@ Beim ersten Start wird ein deutlich als Beispiel beschriebenes Programm mit acht
 
 ## Was der Prototyp kann
 
-- Barrenanzahl und Flächengrösse einstellen; Barren/Nebenposten ziehen, drehen und in Metern positionieren.
+- Barrenanzahl und Flächengrösse einstellen; Barren, Trampolin, dünne und dicke Matten, 16er, Kasten und Nebenposten ziehen, drehen und in Metern positionieren.
 - Turnende mit Namen und Farben anlegen und zu jedem Zeitpunkt als Punkte sehen.
 - Abschnitte mit frei wählbarer Länge und BPM planen; 8er-, 6er- oder andere Zählgruppen nutzen.
 - Parallele Aktionen für einzelne oder mehrere Turnende planen, inklusive Ein-/Ausstiegen, Wegen, Nebenposten und Formationen.
@@ -24,11 +24,13 @@ Beim ersten Start wird ein deutlich als Beispiel beschriebenes Programm mit acht
 - Bausteine mit Länge, Anweisungen, Schlagnotizen und Elementen wiederverwenden; Platzierungen und Personen-Einsätze getrennt zählen.
 - Positionen pro Person und Zeitpunkt setzen; Wege linear darstellen oder Positionen bis zum nächsten Zeitpunkt halten.
 - Musik lokal laden, Startversatz setzen und den Ablauf abspielen. Ohne Musik läuft eine BPM-basierte Vorschau.
-- Person filtern, persönliche Abläufe lesen, als CSV exportieren oder über den Browser drucken / als PDF speichern.
+- Alle Übungen in einer eigenen Übersicht mit vollständiger Elementfolge lesen; Kanon-Einsätze als Startbalken je Person und Gerät vergleichen.
+- Das Feld in einer eigenen grossen Ansicht verfolgen und dort Positionen geschützt bearbeiten.
+- Person filtern, ihren Barren, Mitturnende und Chef sehen sowie den persönlichen Ablauf mit vollständiger Elementfolge direkt als PDF oder CSV exportieren.
 - Automatisch speichern, Änderungen rückgängig machen, vollständige Projekte als JSON sichern/importieren.
 - Überlappende Aufträge derselben Person, unverplante Schläge, Elementvielfalt, Musikdauer, Gruppengrösse und Barrenanzahl prüfen.
 
-## Schreibansicht (Version 02)
+## Schreibansicht (Version 03)
 
 Die Hauptansicht ist ein Trainer-Arbeitsplatz: **Davor – Jetzt – Danach** zeigt die letzten abgeschlossenen, aktuell laufenden und nächsten Übungen je Turner, auch über Abschnittsgrenzen hinweg. Ohne Auftrag wird eine Lücke angezeigt; gleichzeitige Aufträge bleiben sichtbar. Die Koordinaten unter dem Namen entsprechen der geplanten Position auf dem gewählten Schlag. Der zugeteilte Posten steht separat bei der Übung.
 
@@ -40,6 +42,10 @@ Ein Feld für den absoluten Schlag, Einzelschritte und die Navigation zum nächs
 
 Die **Geräteaufstellung** ist eine separate Einrichtung pro Programm. Geräte sind dort zunächst ebenfalls gesperrt; Änderungen wirken auf alle Schläge. Bestehende Turnerpositionen werden beim Verschieben eines Geräts nicht mitverschoben.
 
+Im Übungseditor wird zuerst die Dauer (`1x8`, `2x8 + 1x4` usw.) und dann die Elementfolge erfasst. Unter „Besetzung & Position“ kann jeder Person ein eigenes Gerät und ein Startversatz für Kanonfolgen zugeteilt werden. Auf Wunsch wird ihre Feldposition am tatsächlichen Startschlag direkt am Gerätezentrum gespeichert. Eine Übung bleibt eine gemeinsame Aktion; ein Versatz verschiebt den persönlichen Einsatz, nicht die Elementfolge der anderen.
+
+Übungen, Turnende und Geräte werden ohne weitere Nachfrage gelöscht. Das Löschen ist mit „Rückgängig“ bzw. `Ctrl+Z` rückgängig zu machen. Abschnitte können nach ihrer Erstellung weiterhin bearbeitet werden; ihre Länge wird als 8er-Folge eingegeben.
+
 ## Empfohlener Ablauf
 
 1. In den Einstellungen Programmname, Verein, Fläche, Barrenanzahl und Zählgruppe festlegen.
@@ -49,7 +55,7 @@ Die **Geräteaufstellung** ist eine separate Einrichtung pro Programm. Geräte s
 5. Für einen Weg den Zeitregler auf den Wegbeginn stellen und **Positionen bearbeiten** wählen. Turner ziehen, dann **Übernehmen & sperren**. Am Ankunftsschlag erneut platzieren und übernehmen. Für Standphasen den Übergang **Vorherige Position bis hier halten** nutzen. Alle Punkte sind unter **Turnende → Positionen** auch numerisch editierbar und löschbar.
 6. Wiederkehrende Aktionen **Als Baustein** speichern. Unter **Bausteine** erneut einfügen und Besetzung/Posten wählen.
 7. Musik laden. In den Einstellungen den Zeitpunkt des ersten gezählten Schlags im Musikstück setzen. Ein Tempo pro Abschnitt; Tempoänderungen erfordern neue Abschnitte.
-8. Person filtern und Ablauf drucken. Im Programmcheck offene Angaben ergänzen und manuelle Prüfpunkte bearbeiten.
+8. In „Übungsübersicht“ die gesamte Folge kontrollieren und in „Grosses Feld“ Positionen und Wege prüfen. Person filtern und ihren vollständigen Ablauf direkt als PDF exportieren. Im Programmcheck offene Angaben ergänzen und manuelle Prüfpunkte bearbeiten.
 
 ## Zeitmodell und Änderungsverhalten
 
@@ -83,7 +89,7 @@ Die Elementnamen sind frei eingegeben. Die Software hat keinen offiziellen Eleme
 - Bei gleichzeitigen Änderungen in mehreren Fenstern verhindert eine Revisionsprüfung stilles Überschreiben. Bei Konflikt den ungespeicherten Stand exportieren und die Seite neu laden.
 - Ungespeicherte Bearbeitungen werden zusätzlich als Browserentwurf vorgemerkt. Bei einem späteren Start wird dessen Download zur Wiederherstellung angeboten.
 - Musik verbleibt im Browser und muss nach dem Neuladen wieder ausgewählt werden. Dateiname, zuletzt gemessene Dauer und Versatz werden gespeichert. Keine Audioanalyse oder automatische Beat-Erkennung.
-- Die Flächenansicht ist schematisch. Positionen werden unabhängig von Aktions-/Gerätezuordnungen gesetzt; es gibt keine automatische Bindung an verschobene Geräte, keine Geräteanimation und keine Kollisionserkennung. Geräte haben beispielhafte Symbolabmessungen, Matten sind nicht modelliert.
+- Die Flächenansicht ist schematisch. Gerätearten und Abmessungen sind konfigurierbar; Positionen werden nur auf ausdrücklichen Wunsch beim Übungsstart ans Gerät gesetzt. Danach besteht keine automatische Bindung an verschobene Geräte, keine Geräteanimation und keine Kollisionserkennung.
 - Programmcheck für Barren (BA), kein vollständiger Prüfer für andere Disziplinen, Altersgruppen oder Anlassreglemente. Sicherheit, Matten und Materialfreigaben müssen vor Ort geprüft werden.
 - Ein aktives Programm pro Datenbank, kein Mehrbenutzer-/Cloudbetrieb. Mehrere Programme über JSON-Dateien oder separate Datenbanken (`--db pfad.sqlite3`).
 - Der Server bindet ausschliesslich an `127.0.0.1`. Keine Installation von Webframeworks, keine CDN- oder Schrift-Downloads.
@@ -95,9 +101,15 @@ python -m unittest discover -s tests -v
 node --test tests/*.test.mjs
 ```
 
-Die Tests decken Speicherung mit konkurrierenden Revisionen, Importvalidierung, Tempoänderungen, Elementzählung, parallele Aktionen, Musiklimits, Positionsinterpolation und das Verschieben von Positionen bei Abschnittsänderungen ab.
+Die Tests decken unter anderem Speicherung mit konkurrierenden Revisionen, Importvalidierung, Kanon-Versätze, Gerätezuordnung, gemischte Übungsdauern, PDF-Inhalte, Musiklimits, Positionsinterpolation und Abschnittsänderungen ab.
 
 ## Projektstruktur
+
+### Kompakter Übungseditor
+
+Übungen und Bausteine werden über Dauer und eine freie Elementfolge geschrieben (angelehnt an `TS26.pdf`). Die Dauer akzeptiert beispielsweise `1x8`, `2x8`, `3x8 + 7` oder einzelne Schläge. Eine Zeile wie `7 Arme` oder `8 Einsprung` erzeugt eine Schlagmarke relativ zum Übungsbeginn; im zweiten 8er läuft die Zählung mit 9 weiter. Zeilen ohne führende Schlagzahl bleiben freie Elementfolgen ohne automatisch zugewiesenen Zeitpunkt. Sie erscheinen auch im persönlichen Ablauf, beim Drucken und im CSV-Export.
+
+Turnende, Gerät, Chef, persönlicher Startversatz und zusätzliche Bemerkungen sind aufklappbar. Eine längere Übung kann den Abschnitt nur nach ausdrücklicher Bestätigung verlängern; nachfolgende Abschnitte und Positionspunkte verschieben sich dann gemeinsam. Alte Schlagnotizen bleiben erhalten und werden beim Öffnen als Textzeilen angezeigt. Freie Elementfolgen werden nicht automatisch als zählende Wettkampfelemente gewertet.
 
 ```text
 app.py                 Lokaler HTTP-Server und SQLite-Speicher
@@ -105,9 +117,12 @@ planner.py             Beispieldaten, Validierung und Auswertung
 static/index.html      App-Einstieg
 static/app.js          Oberfläche, Bearbeitung und Wiedergabe
 static/writer.js       Schreibansicht, Einsatzkontext und Geräteaufstellung
+static/overview.js     Übungsübersicht und persönlicher Ablauf
+static/equipment.js    Gerätearten und Feldsymbole
 static/writer.css      Trainer-Arbeitsplatz und responsive Darstellung
 static/domain.js       Zeit- und Positionsmodell
 static/style.css       Gestaltung und Drucklayout
+pdf_export.py          Direkter persönlicher PDF-Export
 tests/                 Python- und JavaScript-Tests
 start.bat              Windows-Start per Doppelklick
 ```

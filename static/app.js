@@ -1,6 +1,8 @@
-import {clone, uid, clamp, snap, sections, totalBeats, beatToSeconds, secondsToBeat, positionAt, setFrame, resizeSection, globalActions, scaleAction, formatTime, countLabel, personMoment, eventBeats} from './domain.js';
+import {assignment,actionEnd,forPerson,personActions,clone, uid, clamp, snap, sections, totalBeats, beatToSeconds, secondsToBeat, positionAt, setFrame, resizeSection, globalActions, scaleAction, formatTime, countLabel, personMoment, eventBeats} from './domain.js';
 import {writerView,setupView,momentRows,selectionDetail,chiefLabel} from './writer.js';
-import {durationText,parseDuration,sequenceText,parseSequence,sequenceLines,scaleSequence} from './exercise.js';
+import {freeSequence,durationText,parseDuration,sequenceText,parseSequence,sequenceLines,scaleSequence} from './exercise.js';
+import {stationKinds,sizes,stationSvg} from './equipment.js';
+import {overviewView,peopleViewNew} from './overview.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -65,7 +67,7 @@ function render() {
   $('#app').innerHTML=`<aside class="sidebar">
     <a class="brand" href="/" aria-label="VGT Studio Startseite"><span class="brand-symbol">∥</span><span>VGT<span class="brand-light">studio</span><small>BEWEGUNG PLANEN.</small></span></a>
     <div class="workspace-label">DEIN ARBEITSRAUM</div>
-    <nav>${[['program','grid','Programm schreiben'],['people','people','Turnende'],['parts','parts','Bausteine'],['checks','check','Programmcheck'],['setup','settings','Geräteaufstellung']].map(([id,i,n])=>btn('tab',`${icon(i)}${n}${id==='checks'?'<span class="nav-dot"></span>':''}`,`nav-item ${state.tab===id?'active':''}`,`data-id="${id}"`)).join('')}</nav>
+    <nav>${[['program','grid','Übungsübersicht'],['field','grid','Grosses Feld'],['people','people','Turnende'],['parts','parts','Bausteine'],['checks','check','Programmcheck'],['setup','settings','Geräteaufstellung']].map(([id,i,n])=>btn('tab',`${icon(i)}${n}${id==='checks'?'<span class="nav-dot"></span>':''}`,`nav-item ${state.tab===id?'active':''}`,`data-id="${id}"`)).join('')}</nav>
     <div class="sidebar-bottom"><div class="local-badge"><span class="status-dot"></span> Lokal auf deinem Computer</div><p>Deine Choreografie.<br>Schlag für Schlag.</p>${btn('help','Kurzanleitung ↗','text-button')}</div>
   </aside>
   <div class="workspace"><header class="topbar"><div class="breadcrumb">Arbeitsraum <span>/</span> ${esc(p.club||'Mein Verein')}</div><div class="top-actions"><span id="save-status" class="save-status">${esc(state.status)}</span>${btn('undo',icon('back'),'icon-button','title="Rückgängig (Ctrl+Z)" aria-label="Rückgängig" '+(!state.history.length?'disabled':''))}${btn('export',`${icon('export')} Projekt sichern`,'outline')}${btn('settings',icon('settings'),'icon-button','title="Programmeinstellungen" aria-label="Programmeinstellungen"')}</div></header>
@@ -76,18 +78,19 @@ function render() {
 }
 function renderMain() {
   const el=$('#main'); if(!el) return;
-  el.innerHTML=state.tab==='program'?programView():state.tab==='setup'?setupView(state,{btn,floorSvg}):state.tab==='people'?peopleView():state.tab==='parts'?partsView():checksView();
+  el.innerHTML=state.tab==='program'?programView():state.tab==='field'?writerView(state,{btn,icon,option,personOptions,floorSvg,timelineView}):state.tab==='setup'?setupView(state,{btn,floorSvg}):state.tab==='people'?peopleViewNew(state,{btn,personOptions}):state.tab==='parts'?partsView():checksView();
   momentSignature='';
-  if(state.tab==='program') updateLive();
+  el.classList.toggle('field-view',state.tab==='field');
+  if(['program','field'].includes(state.tab)) updateLive();
 }
 function pageHeading(eyebrow,title,subtitle,actions='') { return `<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1><p>${subtitle}</p></div><div class="heading-actions">${actions}</div></div>`; }
-function programView() { return writerView(state,{btn,icon,option,personOptions,floorSvg,timelineView}); }
+function programView() { return overviewView(state,{btn,icon,personOptions}); }
 function floorSvg() {
   const p=state.project,w=p.floor.width*40,h=p.floor.height*40;
   return `<svg id="stage" viewBox="-26 -20 ${w+52} ${h+55}" role="img" aria-label="Aufstellung der Barren und Turnenden zum gewählten Schlag"><defs><pattern id="floor-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#dce3dd" stroke-width="0.8"/></pattern></defs><rect width="${w}" height="${h}" rx="4" fill="#f4f7f2"/><rect width="${w}" height="${h}" fill="url(#floor-grid)"/><path d="M${w/2-8} ${h/2}h16m-8-8v16" stroke="#b5c4b8" stroke-width="1.5"/>
   ${Array.from({length:Math.floor(p.floor.width/2)+1},(_,i)=>`<text x="${i*80}" y="-7" text-anchor="middle" class="dimension">${i*2}</text>`).join('')}
   <g id="paths">${p.people.filter(person=>!state.person||person.id===state.person).map(person=>{const fs=[...person.frames].sort((a,b)=>a.beat-b.beat);return fs.slice(1).filter(f=>f.transition==='linear').map(f=>{const prev=fs[fs.indexOf(f)-1];return `<path d="M${prev.x*40} ${prev.y*40}L${f.x*40} ${f.y*40}" stroke="${person.color}" stroke-opacity=".2" stroke-width="1.5" stroke-dasharray="5 5" fill="none"/>`;}).join('');}).join('')}</g>
-  ${p.stations.map(s=>`<g transform="translate(${s.x*40} ${s.y*40})" data-drag="station" data-id="${esc(s.id)}" class="stage-station"><g transform="rotate(${s.rotation})">${s.kind==='bar'?'<rect x="-31" y="-69" width="62" height="138" rx="12" fill="#dcebe0" stroke="#a5c3af"/><path d="M-15-50V50M15-50V50" stroke="#435c4e" stroke-width="7" stroke-linecap="round"/><path d="M-24-35h48M-24 35h48" stroke="#809586" stroke-width="4"/>':'<rect x="-60" y="-24" width="120" height="48" rx="10" fill="#ede5d4" fill-opacity=".7" stroke="#c7b692" stroke-dasharray="5 4"/>'}</g><text y="${s.kind==='bar'?89:42}" text-anchor="middle" class="station-label">${esc(s.name)}</text><title>${esc(s.name)} · ${s.x.toFixed(1)}, ${s.y.toFixed(1)} m</title></g>`).join('')}
+  ${p.stations.map(stationSvg).join('')}
   <g id="person-dots">${p.people.map((person,i)=>{const xy=positionAt(person,state.beat);return `<g class="person-dot ${state.person&&state.person!==person.id?'dimmed':''}" transform="translate(${xy.x*40} ${xy.y*40})" data-drag="person" data-id="${esc(person.id)}"><circle r="12" fill="${person.color}" stroke="white" stroke-width="3"/><text text-anchor="middle" dy="4" fill="white" class="dot-number">${i+1}</text><text class="chief-star" data-person="${esc(person.id)}" visibility="hidden" x="15" y="-12" text-anchor="middle" fill="#9d6f18" font-size="20">★</text><text class="dot-name" y="26" text-anchor="middle">${esc(person.name)}</text><title>${esc(person.name)}</title></g>`;}).join('')}</g><path d="M${w/2-65} ${h+19}h130" stroke="#b0bbae"/><text x="${w/2}" y="${h+34}" text-anchor="middle" class="audience-label">PUBLIKUM / FRONT</text></svg>`;
 }
 function inspectorView() {
@@ -103,12 +106,13 @@ function timelineView() {
   const people=p.people.filter(person=>!state.person||person.id===state.person);
   const actions=p.actions.filter(a=>a.section_id===s.id);
   const tickStep=s.beats>256?Math.ceil(s.beats/128):1;
-  return `<div class="timeline" style="--beat-width:${px}px;--lane-width:${width}px"><div class="timeline-ruler"><div class="lane-label">TURNENDE <small>${people.length}</small></div><div class="ruler-track" data-do="seek-lane">${Array.from({length:Math.ceil(s.beats/tickStep)},(_,i)=>i*tickStep).map(i=>`<button class="beat-tick ${i%p.phrase===0?'major':''}" style="left:${i*px}px;width:${Math.max(px*tickStep,20)}px" data-do="seek-beat" data-beat="${s.start+i}" title="Absoluter Schlag ${s.start+i+1}">${i+1}</button>`).join('')}</div></div>${people.map((person,index)=>`<div class="timeline-row"><button class="lane-label" data-do="filter-person" data-id="${esc(person.id)}"><i class="avatar" style="--person-color:${person.color}">${esc(person.name.slice(0,1))}</i><span>${esc(person.name)}</span></button><div class="lane" style="height:${Math.max(1,actions.filter(a=>a.people.includes(person.id)).length)*34+14}px">${actions.filter(a=>a.people.includes(person.id)).map((a,i)=>`<button class="action-block ${a.kind} ${state.selected===a.id?'selected':''}" style="left:${a.start*px}px;width:${Math.max(a.length*px-4,8)}px;top:${i*34+8}px" data-do="select-action" data-id="${esc(a.id)}" title="${esc(a.title)} · Start ${a.start+1} · ${a.length} Schläge"><span>${esc(a.title)}</span>${a.length*px>150?`<small>${a.length} Schläge</small>`:''}</button>`).join('')}<div class="lane-cursor"></div></div></div>`).join('')||'<p class="empty">Lege zuerst Turnende an.</p>'}</div>`;
+  return `<div class="timeline" style="--beat-width:${px}px;--lane-width:${width}px"><div class="timeline-ruler"><div class="lane-label">TURNENDE <small>${people.length}</small></div><div class="ruler-track" data-do="seek-lane">${Array.from({length:Math.ceil(s.beats/tickStep)},(_,i)=>i*tickStep).map(i=>`<button class="beat-tick ${i%p.phrase===0?'major':''}" style="left:${i*px}px;width:${Math.max(px*tickStep,20)}px" data-do="seek-beat" data-beat="${s.start+i}" title="Absoluter Schlag ${s.start+i+1}">${i+1}</button>`).join('')}</div></div>${people.map((person,index)=>`<div class="timeline-row"><button class="lane-label" data-do="filter-person" data-id="${esc(person.id)}"><i class="avatar" style="--person-color:${person.color}">${esc(person.name.slice(0,1))}</i><span>${esc(person.name)}</span></button><div class="lane" style="height:${Math.max(1,actions.filter(a=>a.people.includes(person.id)).map(a=>forPerson(a,person.id)).length)*34+14}px">${actions.filter(a=>a.people.includes(person.id)).map(a=>forPerson(a,person.id)).map((a,i)=>`<button class="action-block ${a.kind} ${state.selected===a.id?'selected':''}" style="left:${a.start*px}px;width:${Math.max(a.length*px-4,8)}px;top:${i*34+8}px" data-do="select-action" data-id="${esc(a.id)}" title="${esc(a.title)} · Start ${a.start+1} · ${a.length} Schläge"><span>${esc(a.title)}</span>${a.length*px>150?`<small>${a.length} Schläge</small>`:''}</button>`).join('')}<div class="lane-cursor"></div></div></div>`).join('')||'<p class="empty">Lege zuerst Turnende an.</p>'}</div>`;
 }
 function updateLive() {
-  if(state.tab!=='program') return;
+  if(!['program','field'].includes(state.tab)) return;
   const p=state.project,s=currentSection(),actual=sections(p).find(s=>state.beat>=s.start&&state.beat<s.start+s.beats)||sections(p).at(-1);
   const beat=Math.floor(state.beat*4)/4;
+  document.querySelectorAll('[data-progress-start]').forEach(el=>{el.style.width=`${clamp((state.beat-Number(el.dataset.progressStart))/Number(el.dataset.progressLength),0,1)*100}%`;});
   if($('#scrubber')) $('#scrubber').value=state.beat;
   if($('#current-time')) $('#current-time').textContent=formatTime(beatToSeconds(p,state.beat));
   if($('#count-label')) $('#count-label').textContent=`Zählgruppe ${countLabel(p,beat)}`;
@@ -122,7 +126,7 @@ function updateLive() {
   if($('#writer-section'))$('#writer-section').textContent=`${actual.name} · Schlag ${+(state.beat-actual.start+1).toFixed(2)} im Abschnitt`;
   const signature=`${beat}|${state.version}|${state.person}`;
   if($('#moment-rows')&&signature!==momentSignature){$('#moment-rows').innerHTML=momentRows(state);if($('#writer-detail'))$('#writer-detail').innerHTML=selectionDetail(state,{btn});momentSignature=signature;}
-  const leaders=new Set(globalActions(p).filter(a=>a.globalStart<=state.beat&&state.beat<a.globalStart+a.length).map(a=>a.leader_id).filter(Boolean));
+  const leaders=new Set(p.actions.filter(a=>a.leader_id).filter(a=>personActions(p,a.leader_id).some(x=>x.id===a.id&&x.globalStart<=state.beat&&state.beat<x.globalStart+x.length)).map(a=>a.leader_id));
   document.querySelectorAll('.chief-star').forEach(el=>el.setAttribute('visibility',leaders.has(el.dataset.person)?'visible':'hidden'));
   if(state.floorMode==='positions' && $('.floor-hint')?.firstChild?.nodeType===Node.TEXT_NODE) $('.floor-hint').firstChild.textContent=`Turner ziehen: Position auf Schlag ${snap(state.beat)+1} speichern. `;
   document.querySelectorAll('#person-dots [data-id]').forEach(el=>{const person=p.people.find(x=>x.id===el.dataset.id);const xy=positionAt(person,state.beat);el.setAttribute('transform',`translate(${xy.x*40} ${xy.y*40})`);});
@@ -140,7 +144,7 @@ function peopleView() {
   const persons=selected?[selected]:p.people;
   return pageHeading('DIE RIEGE','Jeder Einsatz im Blick',`Persönliche Ablaufpläne · Musikzeiten aus BPM berechnet · Musikversatz ${p.music.offset} s.`,btn('new-person',`${icon('plus')} Turner hinzufügen`,'primary'))+
     `<div class="panel people-toolbar"><label>Persönlicher Ablauf <select id="person-filter" aria-label="Turner filtern">${personOptions(state.person)}</select></label><div>${btn('csv','CSV exportieren','outline')}${btn('print','Ablauf drucken','outline')}</div></div><div class="person-tabs">${p.people.map(person=>btn('filter-person',`<i style="background:${person.color}"></i>${esc(person.name)}`,`person-chip ${state.person===person.id?'active':''}`,`data-id="${esc(person.id)}"`)).join('')}</div>
-    ${persons.map(person=>{const actions=globalActions(p).filter(a=>a.people.includes(person.id));return `<section class="panel person-sheet"><div class="panel-heading"><div class="person-title"><span class="avatar" style="--person-color:${person.color}">${esc(person.name[0]||'?')}</span><div><h2>${esc(person.name)}</h2><small>${actions.length} Einsätze · ${person.frames.length} gespeicherte Positionen</small></div></div><div>${btn('positions','Positionen','outline',`data-id="${esc(person.id)}"`)}${btn('edit-person','Bearbeiten','outline',`data-id="${esc(person.id)}"`)}</div></div><div class="table-wrap"><table><thead><tr><th>Musikzeit / Zählung</th><th>Abschnitt / Einsatz</th><th>Posten</th><th>Dauer</th><th>Auftrag & Schlagnotizen</th></tr></thead><tbody>${actions.map(a=>`<tr><td><strong>${formatTime(beatToSeconds(p,a.globalStart)+p.music.offset,true)}</strong><small>Gruppe ${countLabel(p,a.globalStart)}<br>Absolut ${a.globalStart+1}</small></td><td><small>${esc(a.section.name)} · Schlag ${a.start+1}</small><button class="table-link" data-do="edit-action" data-id="${esc(a.id)}">${esc(a.title)}</button><span class="tag ${a.kind}">${kinds[a.kind]}</span> <span class="chief-badge">Chef: ${esc(chiefLabel(p,a))}</span></td><td>${esc(p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche')}</td><td>${a.length} Schläge</td><td><p>${esc(a.note)}</p>${a.cues.map(c=>`<div class="report-cue"><b>${a.start+c.beat+1}</b><span>${esc(c.text)} <small>(${formatTime(beatToSeconds(p,a.globalStart+c.beat)+p.music.offset,true)})</small></span></div>`).join('')}</td></tr>`).join('')||'<tr><td colspan="5">Noch keine Einsätze geplant.</td></tr>'}</tbody></table></div></section>`;}).join('')||'<div class="empty">Füge deinen ersten Turner hinzu.</div>'}`;
+    ${persons.map(person=>{const actions=globalActions(p).filter(a=>a.people.includes(person.id));return `<section class="panel person-sheet"><div class="panel-heading"><div class="person-title"><span class="avatar" style="--person-color:${person.color}">${esc(person.name[0]||'?')}</span><div><h2>${esc(person.name)}</h2><small>${actions.length} Einsätze · ${person.frames.length} gespeicherte Positionen</small></div></div><div>${btn('positions','Positionen','outline',`data-id="${esc(person.id)}"`)}${btn('edit-person','Bearbeiten','outline',`data-id="${esc(person.id)}"`)}</div></div><div class="table-wrap"><table><thead><tr><th>Musikzeit / Zählung</th><th>Abschnitt / Einsatz</th><th>Posten</th><th>Dauer</th><th>Auftrag & Schlagnotizen</th></tr></thead><tbody>${actions.map(a=>`<tr><td><strong>${formatTime(beatToSeconds(p,a.globalStart)+p.music.offset,true)}</strong><small>Gruppe ${countLabel(p,a.globalStart)}<br>Absolut ${a.globalStart+1}</small></td><td><small>${esc(a.section.name)} · Schlag ${a.start+1}</small><button class="table-link" data-do="edit-action" data-id="${esc(a.id)}">${esc(a.title)}</button><span class="tag ${a.kind}">${kinds[a.kind]}</span> <span class="chief-badge">Chef: ${esc(chiefLabel(p,a))}</span></td><td>${esc(p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche')}</td><td>${a.length} Schläge</td><td><p>${esc(a.note)}</p>${freeSequence(a)?`<div class="free-sequence"><small>Freie Elementfolge · ohne genaue Schlagzuordnung</small><p>${esc(freeSequence(a))}</p></div>`:""}${a.cues.map(c=>`<div class="report-cue"><b>${a.start+c.beat+1}</b><span>${esc(c.text)} <small>(${formatTime(beatToSeconds(p,a.globalStart+c.beat)+p.music.offset,true)})</small></span></div>`).join('')}</td></tr>`).join('')||'<tr><td colspan="5">Noch keine Einsätze geplant.</td></tr>'}</tbody></table></div></section>`;}).join('')||'<div class="empty">Füge deinen ersten Turner hinzu.</div>'}`;
 }
 function partsView() {
   const p=state.project;
@@ -176,6 +180,18 @@ function readCues(form,length) {
   return cues.sort((a,b)=>a.beat-b.beat);
 }
 function readElements(form) {return [...form.querySelectorAll('.element-edit')].map(row=>({name:row.querySelector('.element-name').value.trim(),countable:row.querySelector('.element-countable').checked}));}
+function readAssignments(form){
+  return [...form.querySelectorAll('.assignment-row')].map(row=>({person_id:row.dataset.person,station_id:row.querySelector('[name="seat_station"]').value,offset:Number(row.querySelector('[name="seat_offset"]').value),place:row.querySelector('[name="seat_place"]').checked}));
+}
+function syncAssignmentRows(){
+  const form=$('#editor form[data-form="action"]');if(!form)return;
+  readAssignments(form).forEach(seat=>state.assignmentDraft[seat.person_id]=seat);
+  const people=[...form.querySelectorAll('[name="people"]:checked')].map(x=>x.value),p=state.project;
+  $('#assignment-rows').innerHTML=people.map(id=>{
+    const person=p.people.find(x=>x.id===id),seat=state.assignmentDraft[id]||assignment(state.editingAction,id);
+    return `<div class="assignment-row" data-person="${esc(id)}"><b>${esc(person.name)}</b><label>Gerät<select name="seat_station" aria-label="Gerät für ${esc(person.name)}">${option('','Freie Fläche',seat.station_id)}${p.stations.map(s=>option(s.id,s.name,seat.station_id)).join('')}</select></label><label>Versatz (Schläge)<input name="seat_offset" aria-label="Startversatz für ${esc(person.name)}" type="number" min="0" max="4096" step=".25" required value="${seat.offset}"></label><label class="inline-check"><input type="checkbox" name="seat_place" ${seat.place?'checked':''}>Position setzen</label></div>`;
+  }).join('');
+}
 function simpleSequenceFields(item,length) {
   return `<div class="exercise-duration"><label>Dauer<input name="duration_text" value="${esc(durationText(length))}" required aria-describedby="duration-help"></label><div class="duration-presets">${[1,2,3,4].map(n=>btn('duration-preset',`${n} × 8`,'small-button',`data-length="${n*8}"`)).join('')}</div><span id="duration-help">${length} Schläge</span></div>
     <label class="sequence-label">Elementfolge<textarea name="sequence" class="sequence-input" rows="7" maxlength="10000" spellcheck="false" placeholder="7 Arme&#10;8 Einsprung&#10;Rückschwung, Vorschwung&#10;Rückschwung Salto&#10;Vorschwung, Rückschwung Stemme">${esc(sequenceText(item))}</textarea></label>
@@ -189,7 +205,7 @@ function refreshSequenceEditor(){
     const boundary=$('#duration-boundary'),extend=!!form.querySelector('[name="extend_section"]')?.checked;
     boundary.innerHTML='';
     if(form.dataset.form==='action'){
-      const section=state.project.sections.find(s=>s.id===form.querySelector('[name="section_id"]').value),end=Number(form.querySelector('[name="start"]').value)-1+length;
+      const section=state.project.sections.find(s=>s.id===form.querySelector('[name="section_id"]').value),end=Number(form.querySelector('[name="start"]').value)-1+length+Math.max(0,...readAssignments(form).map(x=>x.offset));
       if(end>section.beats)boundary.innerHTML=`<label class="inline-check"><input type="checkbox" name="extend_section" ${extend?'checked':''}> Abschnitt auf ${end} Schläge verlängern</label><small>Aktuell ${section.beats} Schläge. Folgende Abschnitte und Positionen verschieben sich um ${end-section.beats} Schläge.</small>`;
     }
     form.querySelectorAll('[data-do="duration-preset"]').forEach(b=>{b.classList.toggle('active',Number(b.dataset.length)===length);b.setAttribute('aria-pressed',String(Number(b.dataset.length)===length));});
@@ -205,19 +221,20 @@ function actionEditor(id='',partId='') {
   const s=currentSection(),start=clamp(snap(state.beat-s.start),0,s.beats-.25);
   const a=old||{title:part?.name||'',section_id:state.section,start,length:part?.beats||Math.min(8,s.beats-start),people:state.person?[state.person]:[],leader_id:'',station_id:'',kind:part?.kind||'apparatus',part_id:part?.id||'',note:part?.note||'',sequence:part?sequenceText(part):'',cues:clone(part?.cues||[]),elements:clone(part?.elements||[])};
   state.editingAction=clone(a);
+  state.assignmentDraft=Object.fromEntries(a.people.map(id=>[id,{...assignment(a,id),place:false}]));
   showModal(old?'Übung / Einsatz bearbeiten':'Neue Übung planen',`
     ${field('Übung','title',a.title,'text','required maxlength="200" placeholder="z. B. Schwungfolge mit Salto"')}
     ${simpleSequenceFields(a,a.length)}
-    <details class="exercise-fold" ${a.people.length?'':'open'}><summary>Turnende & Gerät <span id="assignment-summary"></span></summary>
+    <details class="exercise-fold" ${a.people.length?'':'open'}><summary>Turnende, Geräte & Kanon <span id="assignment-summary"></span></summary>
       <div class="form-section-heading"><h3>Wer turnt?</h3>${btn('select-all-people','Alle auswählen','text-button')}</div><div class="people-checkboxes">${p.people.map(person=>`<label><input type="checkbox" name="people" value="${esc(person.id)}" ${a.people.includes(person.id)?'checked':''}><i style="background:${person.color}"></i>${esc(person.name)}</label>`).join('')||'<p>Lege zuerst Turnende an.</p>'}</div>
-      <div class="form-grid">${selectField('Gerät / Posten','station_id',option('','Freie Fläche',a.station_id)+p.stations.map(s=>option(s.id,s.name,a.station_id)).join(''))}${selectField('Chef / Einsatz geben','leader_id',option('','Noch offen',a.leader_id||'')+p.people.filter(person=>a.people.includes(person.id)).map(person=>option(person.id,person.name,a.leader_id)).join(''))}</div></details>
+      <div id="assignment-rows"></div><p class="field-help">Dauer und Elementfolge gelten pro Turner. Versatz 0 = gemeinsamer Start; z. B. 0 / 2 / 4 für einen Kanon. „Position setzen“ platziert den Turner beim Speichern am Gerät auf seinem persönlichen Startschlag (ohne automatischen Anlauf). Bestehende Punkte auf diesem Schlag werden ersetzt, spätere Positionen bleiben bestehen.</p><input type="hidden" name="station_id" value="${esc(a.station_id)}">${selectField('Chef / Einsatz geben','leader_id',option('','Noch offen',a.leader_id||'')+p.people.filter(person=>a.people.includes(person.id)).map(person=>option(person.id,person.name,a.leader_id)).join(''))}</details>
     <details class="exercise-fold"><summary>Start & weitere Angaben <span id="start-summary"></span></summary>
       <div class="form-grid">${selectField('Abschnitt','section_id',p.sections.map(s=>option(s.id,s.name,a.section_id)).join(''))}${field('Startschlag im Abschnitt','start',a.start+1,'number','min="1" step="0.25" required')}${selectField('Aktionsart','kind',Object.entries(kinds).map(([v,l])=>option(v,l,a.kind)).join(''))}</div>
       ${textArea('Bemerkung / Regie-Notiz','note',a.note)}<div class="editor-context" id="editor-context"></div>
       ${old?'<label class="inline-check"><input type="checkbox" name="scale_cues"> Bei geänderter Dauer Schlagmarken proportional verschieben</label>':''}
       <details class="advanced-elements"><summary>Wettkampf-Auswertung (${a.elements.length} Elemente)</summary>${elementFields(a.elements)}</details>
       ${a.part_id?'<p class="field-help">Kopie eines Bausteins. Änderungen gelten nur für diese Übung.</p>':''}</details>`,'action',id,old?btn('delete-action','Übung löschen','danger text-button',`data-id="${esc(id)}"`):'');
-  refreshEditorContext();
+  syncAssignmentRows();refreshEditorContext();
   refreshSequenceEditor();
 }
 function refreshEditorContext(){
@@ -226,12 +243,12 @@ function refreshEditorContext(){
   const leader=form.querySelector('[name="leader_id"]'),selected=leader.value;
   leader.innerHTML=option('','Noch offen','')+p.people.filter(person=>people.includes(person.id)).map(person=>option(person.id,person.name,selected)).join('');
   const sec=sections(p).find(s=>s.id===form.querySelector('[name="section_id"]').value);
-  $('#assignment-summary').textContent=people.length?`${people.length} Turnende · ${p.stations.find(s=>s.id===form.querySelector('[name="station_id"]').value)?.name||'Freie Fläche'} · Chef: ${p.people.find(p=>p.id===leader.value)?.name||'offen'}`:'Noch keine Turnenden gewählt';
+  $('#assignment-summary').textContent=people.length?`${people.length} Turnende · Geräte & Start je Person · Chef: ${p.people.find(p=>p.id===leader.value)?.name||'offen'}`:'Noch keine Turnenden gewählt';
   $('#start-summary').textContent=`${sec.name} · ab Schlag ${form.querySelector('[name="start"]').value}`;
   const beat=sec.start+Number(form.querySelector('[name="start"]').value)-1;
   const all=globalActions(p).filter(a=>a.id!==form.dataset.id);
   $('#editor-context').innerHTML='<strong>Zusammenhang am geplanten Start</strong>'+people.map(id=>{
-    const person=p.people.find(x=>x.id===id),m=personMoment(p,person,beat,all);
+    const person=p.people.find(x=>x.id===id),offset=readAssignments(form).find(x=>x.person_id===id)?.offset||0,m=personMoment(p,person,beat+offset,all);
     return `<p><b>${esc(person.name)}</b> · Davor: ${esc(m.previous.map(a=>a.title).join(' / ')||'Noch keine Übung')}<br><span>Position x ${m.position.x.toFixed(1)} · y ${m.position.y.toFixed(1)} m</span>${m.current.length?`<br><em>Zeitgleich: ${esc(m.current.map(a=>a.title).join(' / '))}</em>`:''}</p>`;
   }).join('')+(people.length?'':'<p>Turnende auswählen, um vorherige Übungen und Positionen zu sehen.</p>');
 }
@@ -243,11 +260,11 @@ function partEditor(id='',source=null,sourceActionId='') {
 }
 function sectionEditor(id='') {
   const s=state.project.sections.find(s=>s.id===id)||{name:'',beats:8,bpm:currentSection().bpm,note:''};
-  showModal(id?'Abschnitt bearbeiten':'Abschnitt hinzufügen',`${field('Name','name',s.name,'text','required maxlength="200"')}<div class="form-grid">${field('Länge in Schlägen','beats',s.beats,'number','min="0.25" max="4096" step="0.25" required')}${field('Tempo (BPM)','bpm',s.bpm,'number','min="10" max="400" step="0.1" required')}</div>${textArea('Regie-Notiz / musikalischer Akzent','note',s.note)}<p class="field-help">Neue Abschnitte werden am Ende ergänzt. Bei einer Längenänderung verschieben sich folgende Abschnitte und Positionen gemeinsam. Aktionen bleiben relativ zu ihrem Abschnitt.</p>`,'section',id,id?btn('delete-section','Abschnitt löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  showModal(id?'Abschnitt bearbeiten':'Abschnitt hinzufügen',`${field('Name','name',s.name,'text','required maxlength="200"')}<div class="form-grid">${field('Dauer in 8ern','section_duration',durationText(s.beats),'text','required placeholder="z. B. 4x8 oder 2x8 + 1x4"')}${field('Tempo (BPM)','bpm',s.bpm,'number','min="10" max="400" step="0.1" required')}</div>${textArea('Regie-Notiz / musikalischer Akzent','note',s.note)}<p class="field-help">Neue Abschnitte werden am Ende ergänzt. Bei einer Längenänderung verschieben sich folgende Abschnitte und Positionen gemeinsam. Aktionen bleiben relativ zu ihrem Abschnitt.</p>`,'section',id,id?btn('delete-section','Abschnitt löschen','danger text-button',`data-id="${esc(id)}"`):'');
 }
 function stationEditor(id='') {
   const s=state.project.stations.find(s=>s.id===id)||{name:`Barren ${state.project.stations.filter(s=>s.kind==='bar').length+1}`,kind:'bar',x:state.project.floor.width/2,y:state.project.floor.height/2,rotation:0};
-  showModal(id?'Gerät / Posten bearbeiten':'Gerät / Posten hinzufügen',`${field('Bezeichnung','name',s.name,'text','required')}${selectField('Typ','kind',option('bar','Barren',s.kind)+option('side','Nebenposten / Hilfsgerät',s.kind))}<div class="form-grid">${field('X-Position (m)','x',s.x,'number',`min="0" max="${state.project.floor.width}" step="0.1" required`)}${field('Y-Position (m)','y',s.y,'number',`min="0" max="${state.project.floor.height}" step="0.1" required`)}${field('Drehung (°)','rotation',s.rotation,'number','min="-360" max="360" step="5" required')}</div><p class="field-help">Positionen sind die Mittelpunkte der Symbole. Barren werden schematisch dargestellt; Abstände und Matten vor Ort prüfen.</p>`,'station',id,id?btn('delete-station','Posten löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  showModal(id?'Gerät / Posten bearbeiten':'Gerät / Posten hinzufügen',`${field('Bezeichnung','name',s.name,'text','required')}${selectField('Typ','kind',Object.entries(stationKinds).map(([v,label])=>option(v,label,s.kind)).join(''))}<div class="form-grid">${field('X-Position (m)','x',s.x,'number',`min="0" max="${state.project.floor.width}" step="0.1" required`)}${field('Y-Position (m)','y',s.y,'number',`min="0" max="${state.project.floor.height}" step="0.1" required`)}${field('Breite (m)','width',s.width||sizes[s.kind][0],'number','min=".2" max="12" step=".05" required')}${field('Tiefe (m)','depth',s.depth||sizes[s.kind][1],'number','min=".2" max="12" step=".05" required')}${field('Drehung (°)','rotation',s.rotation,'number','min="-360" max="360" step="5" required')}</div><p class="field-help">Positionen sind die Mittelpunkte der Symbole. Barren werden schematisch dargestellt; Abstände und Matten vor Ort prüfen.</p>`,'station',id,id?btn('delete-station','Posten löschen','danger text-button',`data-id="${esc(id)}"`):'');
 }
 function personEditor(id='') {
   const p=state.project.people.find(p=>p.id===id)||{name:'',color:colors[state.project.people.length%colors.length]};
@@ -270,21 +287,26 @@ $('#editor').addEventListener('submit',event=>{
     let change;
     if(type==='action') {
       const length=parseDuration(str('duration_text')),start=num('start')-1,s=state.project.sections.find(s=>s.id===str('section_id'));
-      if(start+length>s.beats&&!data.has('extend_section')) throw new Error(`Die Übung ist länger als der Abschnitt. „Abschnitt auf ${start+length} Schläge verlängern“ bestätigen oder die Dauer kürzen.`);
-      if(start+length>4096)throw new Error('Ein Abschnitt darf höchstens 4096 Schläge lang sein.');
+      const seats=readAssignments(form),end=start+length+Math.max(0,...seats.map(x=>x.offset));
+      if(seats.some(x=>!Number.isFinite(x.offset)||x.offset<0||!Number.isInteger(x.offset*4)))throw new Error('Startversatz in nichtnegativen Viertelschlägen eingeben.');
+      if(end>s.beats&&!data.has('extend_section')) throw new Error(`Übung und Kanon reichen über den Abschnitt hinaus. Verlängerung auf ${durationText(end)} bestätigen oder Dauer/Versatz kürzen.`);
+      if(end>4096)throw new Error('Ein Abschnitt darf höchstens 4096 Schläge lang sein.');
       const people=data.getAll('people');if(!people.length) throw new Error('Wähle mindestens eine Person.');
       if(str('leader_id')&&!people.includes(str('leader_id')))throw new Error('Der Chef muss bei dieser Übung mit ausgewählt sein.');
       const sequence=data.has('scale_cues')?scaleSequence(str('sequence'),state.editingAction.length,length):str('sequence'),cues=parseSequence(sequence,length);
       const a={id:id||uid('a'),title:str('title'),section_id:s.id,start,length,kind:str('kind'),station_id:str('station_id'),people,leader_id:str('leader_id'),part_id:state.editingAction.part_id,note:str('note'),sequence,cues,elements:readElements(form)};
-      change=p=>{if(start+length>s.beats)resizeSection(p,s.id,start+length);if(id)p.actions[p.actions.findIndex(a=>a.id===id)]=a;else p.actions.push(a);state.selected=a.id;state.section=s.id;state.beat=sections(p).find(x=>x.id===s.id).start+a.start;};
+      a.assignments=seats.map(({place,...seat})=>seat);
+      if(seats.some(x=>x.place&&!x.station_id))throw new Error('Zum Positionieren zuerst ein Gerät auswählen.');
+      change=p=>{if(end>s.beats)resizeSection(p,s.id,end);if(id)p.actions[p.actions.findIndex(a=>a.id===id)]=a;else p.actions.push(a);state.selected=a.id;state.section=s.id;state.beat=sections(p).find(x=>x.id===s.id).start+a.start;
+        seats.filter(x=>x.place).forEach(seat=>{const station=p.stations.find(s=>s.id===seat.station_id),same=seats.filter(x=>x.station_id===seat.station_id&&x.offset===seat.offset),i=same.indexOf(seat);setFrame(p.people.find(x=>x.id===seat.person_id),state.beat+seat.offset,clamp(station.x+(i%3)*.4,0,p.floor.width),clamp(station.y+Math.floor(i/3)*.4,0,p.floor.height),'hold');});};
     } else if(type==='part') {
       const beats=parseDuration(str('duration_text')),sequence=str('sequence');
       const part={id:id||uid('part'),name:str('name'),beats,kind:str('kind'),note:str('note'),sequence,cues:parseSequence(sequence,beats),elements:readElements(form)};
       change=p=>{if(id)p.parts[p.parts.findIndex(x=>x.id===id)]=part;else p.parts.push(part);if(state.partSource){const original=p.actions.find(a=>a.id===state.partSource);if(original)original.part_id=part.id;}};
     } else if(type==='section') {
-      change=p=>{if(id){resizeSection(p,id,num('beats'));Object.assign(p.sections.find(s=>s.id===id),{name:str('name'),bpm:num('bpm'),note:str('note')});}else{const s={id:uid('s'),name:str('name'),beats:num('beats'),bpm:num('bpm'),note:str('note')};p.sections.push(s);state.section=s.id;}state.beat=Math.min(state.beat,totalBeats(p));};
+      change=p=>{if(id){resizeSection(p,id,parseDuration(str('section_duration')));Object.assign(p.sections.find(s=>s.id===id),{name:str('name'),bpm:num('bpm'),note:str('note')});}else{const s={id:uid('s'),name:str('name'),beats:parseDuration(str('section_duration')),bpm:num('bpm'),note:str('note')};p.sections.push(s);state.section=s.id;}state.beat=Math.min(state.beat,totalBeats(p));};
     } else if(type==='station') {
-      const station={id:id||uid('b'),name:str('name'),kind:str('kind'),x:num('x'),y:num('y'),rotation:num('rotation')};
+      const station={id:id||uid('b'),name:str('name'),kind:str('kind'),x:num('x'),y:num('y'),rotation:num('rotation'),width:num('width'),depth:num('depth')};
       change=p=>{if(id)p.stations[p.stations.findIndex(s=>s.id===id)]=station;else p.stations.push(station);};
     } else if(type==='person') {
       change=p=>{if(id)Object.assign(p.people.find(x=>x.id===id),{name:str('name'),color:str('color')});else p.people.push({id:uid('p'),name:str('name'),color:str('color'),frames:[{beat:0,x:1,y:p.floor.height-1,transition:'hold'}]});};
@@ -292,7 +314,7 @@ $('#editor').addEventListener('submit',event=>{
       const width=num('width'),height=num('height'),barCount=num('bars');
       if(state.project.stations.some(s=>s.x>width||s.y>height)||state.project.people.some(person=>person.frames.some(f=>f.x>width||f.y>height))) throw new Error('Auf der kleineren Fläche lägen Geräte oder Positionen ausserhalb. Verschiebe sie zuerst.');
       const bars=state.project.stations.filter(s=>s.kind==='bar'),remove=bars.slice(barCount).map(s=>s.id);
-      if(state.project.actions.some(a=>remove.includes(a.station_id))) throw new Error('Zu entfernende Barren werden noch in Aktionen verwendet. Passe die Postenzuordnung zuerst an.');
+      if(state.project.actions.some(a=>remove.includes(a.station_id)||a.assignments?.some(x=>remove.includes(x.station_id)))) throw new Error('Zu entfernende Barren werden noch in Aktionen verwendet. Passe die Postenzuordnung zuerst an.');
       change=p=>{Object.assign(p,{name:str('name'),club:str('club'),mode:str('mode'),phrase:num('phrase'),notes:str('notes')});p.floor={width,height};p.music.offset=num('offset');p.stations=p.stations.filter(s=>!remove.includes(s.id));for(let i=bars.length;i<barCount;i++)p.stations.push({id:uid('b'),name:`Barren ${i+1}`,kind:'bar',x:Math.min(width-1,2+(i%5)*3),y:Math.min(height-1,3+Math.floor(i/5)*3),rotation:0});};
     } else if(type==='positions') {
       const frames=[...form.querySelectorAll('.position-edit')].map(row=>({beat:Number(row.querySelector('[name=framebeat]').value)-1,x:Number(row.querySelector('[name=framex]').value),y:Number(row.querySelector('[name=framey]').value),transition:row.querySelector('[name=frametransition]').value}));
@@ -322,6 +344,11 @@ document.addEventListener('click',async event=>{
   else if(action==='write-person'){state.person=id;actionEditor();}
   else if(action==='section'){pause();state.section=id;state.selected=null;seek(sections(p).find(s=>s.id===id).start);renderMain();}
   else if(action==='new-action')actionEditor();
+  else if(action==='add-in-section'){state.section=id;seek(sections(p).find(s=>s.id===id).start);actionEditor();}
+  else if(action==='pdf'){
+    await save();if(state.saving||state.savedVersion!==state.version){toast('Vor dem PDF-Export bitte das Speichern abschliessen.');return;}
+    try{const response=await fetch('/api/export.pdf?person='+encodeURIComponent(state.person));if(!response.ok){const data=await response.json();throw new Error(data.error);}download(`${safeName(p.name)}-ablauf.pdf`,await response.blob(),'application/pdf');}catch(error){toast(error.message);}
+  }
   else if(action==='edit-action')actionEditor(id);
   else if(action==='select-action'){const a=p.actions.find(a=>a.id===id);state.selected=id;state.section=a.section_id;seek(globalActions(p).find(a=>a.id===id).globalStart);renderMain();}
   else if(action==='clear-selection'){state.selected=null;renderMain();}
@@ -343,7 +370,7 @@ document.addEventListener('click',async event=>{
   else if(action==='add-element')$('#element-fields').insertAdjacentHTML('beforeend',elementRow());
   else if(action==='add-position')$('#position-fields').insertAdjacentHTML('beforeend',positionRow({beat:snap(state.beat),x:1,y:1,transition:'linear'}));
   else if(action==='remove-row')target.parentElement.remove();
-  else if(action==='select-all-people'){document.querySelectorAll('#editor [name=people]').forEach(el=>el.checked=true);refreshEditorContext();}
+  else if(action==='select-all-people'){document.querySelectorAll('#editor [name=people]').forEach(el=>el.checked=true);syncAssignmentRows();refreshEditorContext();refreshSequenceEditor();}
   else if(action.startsWith('delete-'))handleDelete(action.slice(7),id);
   else if(action==='filter-person'){state.person=state.person===id?'':id;renderMain();}
   else if(action==='seek-beat')seek(Number(target.dataset.beat));
@@ -365,12 +392,12 @@ document.addEventListener('click',async event=>{
 function handleDelete(type,id) {
   const p=state.project;
   let message={action:'Diese Aktion löschen?',section:'Abschnitt samt Aktionen und den darin gespeicherten Positionen löschen?',person:'Turner und seine Positionen entfernen? Gruppeneinsätze bleiben für die übrigen Turnenden bestehen.',station:'Diesen Posten löschen?',part:'Vorlage löschen? Eingefügte Aktionen bleiben erhalten; ihre Bausteinverknüpfung wird gelöst.'}[type];
-  if(!confirm(message))return;
+  if(!['action','person','station'].includes(type)&&!confirm(message))return;
   const ok=mutate(p=>{
     if(type==='action'){p.actions=p.actions.filter(a=>a.id!==id);state.selected=null;}
     if(type==='part'){p.parts=p.parts.filter(a=>a.id!==id);p.actions.forEach(a=>{if(a.part_id===id)a.part_id='';});}
-    if(type==='station'){if(p.actions.some(a=>a.station_id===id))throw new Error('Der Posten wird noch in Aktionen verwendet. Zuerst deren Zuordnung ändern.');p.stations=p.stations.filter(s=>s.id!==id);}
-    if(type==='person'){p.people=p.people.filter(x=>x.id!==id);p.actions.forEach(a=>{a.people=a.people.filter(x=>x!==id);if(a.leader_id===id)a.leader_id='';});p.actions=p.actions.filter(a=>a.people.length);if(state.person===id)state.person='';}
+    if(type==='station'){p.stations=p.stations.filter(s=>s.id!==id);p.actions.forEach(a=>{if(a.station_id===id)a.station_id='';a.assignments?.forEach(x=>{if(x.station_id===id)x.station_id='';});});}
+    if(type==='person'){p.people=p.people.filter(x=>x.id!==id);p.actions.forEach(a=>{a.people=a.people.filter(x=>x!==id);if(a.assignments)a.assignments=a.assignments.filter(x=>x.person_id!==id);if(a.leader_id===id)a.leader_id='';});p.actions=p.actions.filter(a=>a.people.length);if(state.person===id)state.person='';}
     if(type==='section'){
       if(p.sections.length===1)throw new Error('Mindestens ein Abschnitt muss bestehen bleiben.');
       const s=sections(p).find(x=>x.id===id),end=s.start+s.beats;
@@ -378,10 +405,16 @@ function handleDelete(type,id) {
       p.sections=p.sections.filter(x=>x.id!==id);p.actions=p.actions.filter(a=>a.section_id!==id);state.section=p.sections[0].id;state.selected=null;state.beat=0;
     }
   });
-  if(ok)$('#editor').close();
+  if(ok){$('#editor').close();toast('Gelöscht. Mit Rückgängig (Ctrl+Z) wiederherstellbar.');}
 }
 document.addEventListener('change',event=>{
   const el=event.target;
+  if(el.closest('#editor form[data-form="action"]')&&el.name==='people')syncAssignmentRows();
+  if(el.closest('.assignment-row')){readAssignments($('#editor form')).forEach(seat=>state.assignmentDraft[seat.person_id]=seat);refreshEditorContext();refreshSequenceEditor();}
+  if(el.closest('#editor form[data-form="station"]')&&el.name==='kind'){
+    const form=el.closest('form');form.querySelector('[name="width"]').value=sizes[el.value][0];form.querySelector('[name="depth"]').value=sizes[el.value][1];
+    if(!form.dataset.id)form.querySelector('[name="name"]').value=`${stationKinds[el.value]} ${state.project.stations.filter(s=>s.kind===el.value).length+1}`;
+  }
   if(el.closest('#editor form[data-form="action"]')&&['people','start','section_id','station_id','leader_id'].includes(el.name))refreshEditorContext();
   if(el.closest('#editor')&&['duration_text','sequence','scale_cues','start','section_id'].includes(el.name))refreshSequenceEditor();
   if(el.id==='beat-input') {if(el.value&&el.validity.valid)seek(snap(Number(el.value)-1));else el.value=snap(state.beat)+1;}
@@ -443,8 +476,8 @@ $('#import-file').addEventListener('change',async event=>{
 function safeName(name){return name.replace(/[^a-zA-Z0-9äöüÄÖÜ_-]+/g,'-');}
 function download(name,content,type){const url=URL.createObjectURL(new Blob([content],{type}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function exportCsv() {
-  const p=state.project,rows=[['Turner','Abschnitt','Aktion','Art','Posten','Chef','Programmstart Sekunden','Musikstart Sekunden','Absoluter Startschlag','Zählgruppe','Schlag in Gruppe','Dauer Schläge','Auftrag','Schlagnotizen (absolut)']];
-  for(const person of p.people.filter(p=>!state.person||state.person===p.id))for(const a of globalActions(p).filter(a=>a.people.includes(person.id)))rows.push([person.name,a.section.name,a.title,kinds[a.kind],p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche',chiefLabel(p,a),beatToSeconds(p,a.globalStart).toFixed(2),(beatToSeconds(p,a.globalStart)+p.music.offset).toFixed(2),a.globalStart+1,Math.floor(a.globalStart/p.phrase)+1,a.globalStart%p.phrase+1,a.length,a.note,a.cues.map(c=>`${a.globalStart+c.beat+1}: ${c.text}`).join(' | ')]);
+  const p=state.project,rows=[['Turner','Abschnitt','Aktion','Art','Posten','Chef','Programmstart Sekunden','Musikstart Sekunden','Absoluter Startschlag','Zählgruppe','Schlag in Gruppe','Dauer Schläge','Auftrag','Schlagnotizen (absolut)','Elementfolge (Schläge relativ zur Übung)']];
+  for(const person of p.people.filter(p=>!state.person||state.person===p.id))for(const a of personActions(p,person.id))rows.push([person.name,a.section.name,a.title,kinds[a.kind],p.stations.find(s=>s.id===a.station_id)?.name||'Freie Fläche',chiefLabel(p,a),beatToSeconds(p,a.globalStart).toFixed(2),(beatToSeconds(p,a.globalStart)+p.music.offset).toFixed(2),a.globalStart+1,Math.floor(a.globalStart/p.phrase)+1,a.globalStart%p.phrase+1,a.length,a.note,a.cues.map(c=>`${a.globalStart+c.beat+1}: ${c.text}`).join(' | '),sequenceText(a)]);
   // Escape spreadsheet formula prefixes as well as CSV quoting.
   const encode=v=>'"'+String(v).replace(/^[=+@\-\t\r]/,"'$&").replace(/"/g,'""')+'"';
   download(`${safeName(p.name)}-ablauf.csv`,'\uFEFF'+rows.map(r=>r.map(encode).join(';')).join('\r\n'),'text/csv;charset=utf-8');
@@ -501,7 +534,7 @@ function cancelDrag(){
 }
 document.addEventListener('pointercancel',cancelDrag);
 window.addEventListener('blur',cancelDrag);
-function help(){showModal('Programm schreiben – so geht’s',`<ol class="help-steps"><li><b>Einmal einrichten.</b> Unter „Geräteaufstellung“ Barrenanzahl, Fläche und Gerätepositionen festlegen. Geräte erst mit „Geräte bearbeiten“ entsperren. Die Aufstellung gilt für das ganze Programm und bleibt jederzeit änderbar.</li><li><b>Zeitpunkt wählen.</b> Einen Abschnitt, einen absoluten Schlag oder „Nächster Einsatz“ wählen. „Davor – Jetzt – Danach“ zeigt für jede Person den Zusammenhang über Abschnittsgrenzen hinweg.</li><li><b>Übung schreiben.</b> Am aktuellen Schlag eine Übung oder einen Baustein einfügen. Turnende, Dauer, Gerät und Chef auswählen. Im Editor bleiben vorherige Einsätze und die Position am geplanten Start sichtbar.</li><li><b>Positionen bewusst ändern.</b> „Positionen bearbeiten“ öffnet eine Vorschau am gewählten Schlag. Punkte mit der Maus ziehen und anschliessend „Übernehmen & sperren“ wählen. „Verwerfen“ oder Escape setzt die Vorschau zurück. Währenddessen bleibt der Zeitpunkt fest.</li><li><b>Wege planen.</b> Einen Punkt am Wegbeginn und einen am Ankunftsschlag setzen. „Weg von vorheriger Position“ verbindet die Punkte. „Vorherige Position bis hier halten“ zeigt einen Positionswechsel erst am Zielschlag. Die Übersicht nennt tatsächliche geplante Koordinaten; der zugeteilte Posten steht separat bei der Übung.</li><li><b>Chef und Notizen lesen.</b> Der Chef gilt nur für seinen Einsatz und ist währenddessen mit ★ auf dem Feld markiert. Leere Zuständigkeiten werden als „Noch offen“ angezeigt. Schlagnotizen erscheinen bei der laufenden Übung.</li></ol><p>Die Zeitleiste ist unter der Schreibansicht aufklappbar. Persönliche Ablaufpläne, Druck und CSV bleiben unter „Turnende“ verfügbar. Ctrl+Z macht gespeicherte Bearbeitungen rückgängig.</p>`,'help');$('#editor .modal-footer').innerHTML=btn('close-modal','Verstanden','primary');}
+function help(){showModal('Programm schreiben – so geht’s',`<ol class="help-steps"><li><b>Einmal einrichten.</b> Unter „Geräteaufstellung“ Barrenanzahl, Fläche und Gerätepositionen festlegen. Geräte erst mit „Geräte bearbeiten“ entsperren. Die Aufstellung gilt für das ganze Programm und bleibt jederzeit änderbar.</li><li><b>Übung schreiben.</b> Schlag und Abschnitt wählen, die Dauer etwa als „2x8 + 1x4“ eingeben und die Elemente Zeile für Zeile notieren. Unter „Besetzung & Position“ jeder Person ihr Gerät und bei einem Kanon ihren Startversatz zuweisen. Die Position kann dabei ausdrücklich am Gerät gesetzt werden.</li><li><b>Überblick behalten.</b> „Übungsübersicht“ zeigt die gesamte Folge und die Startbalken pro Person. „Grosses Feld“ zeigt die Aufstellung. Unter „Turnende“ sind Barren, Mitturnende, Chef und der direkte PDF-Export sichtbar.</li><li><b>Positionen bewusst ändern.</b> „Positionen bearbeiten“ öffnet eine Vorschau am gewählten Schlag. Punkte mit der Maus ziehen und anschliessend „Übernehmen & sperren“ wählen. „Verwerfen“ oder Escape setzt die Vorschau zurück. Währenddessen bleibt der Zeitpunkt fest.</li><li><b>Wege planen.</b> Einen Punkt am Wegbeginn und einen am Ankunftsschlag setzen. „Weg von vorheriger Position“ verbindet die Punkte. „Vorherige Position bis hier halten“ zeigt einen Positionswechsel erst am Zielschlag.</li><li><b>Abschnitte anpassen.</b> Ihre Länge wird in 8ern erfasst und kann nachträglich bearbeitet werden. Nachfolgende Abschnitte und Positionspunkte verschieben sich mit.</li></ol><p>Übungen, Turnende und Geräte werden direkt gelöscht; Ctrl+Z macht das rückgängig. Der Programmcheck und die JSON-Sicherung bleiben jederzeit verfügbar.</p>`,'help');$('#editor .modal-footer').innerHTML=btn('close-modal','Verstanden','primary');}
 async function init(){
   try {
     const response=await fetch('/api/project');if(!response.ok)throw new Error('Server antwortet nicht.');const data=await response.json();Object.assign(state,data);state.section=state.project.sections[0].id;state.status='Lokal gespeichert';render();

@@ -41,6 +41,20 @@ class PlannerTests(unittest.TestCase):
         self.p["sections"][0]["bpm"] = 60
         self.assertAlmostEqual(analyse(self.p)["seconds"], 8 + 56 * 60 / 52)
 
+    def test_free_sequence_roundtrip_and_validation(self):
+        sequence = "7 Arme\n8 Einsprung\nRückschwung, Vorschwung, Salto"
+        self.p["actions"][0]["sequence"] = sequence
+        self.p["parts"][0]["sequence"] = sequence
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "sequence.sqlite3")
+            store.save(self.p, 1)
+            saved = store.read()["project"]
+            self.assertEqual(saved["actions"][0]["sequence"], sequence)
+            self.assertEqual(saved["parts"][0]["sequence"], sequence)
+        self.p["actions"][0]["sequence"] = 123
+        with self.assertRaisesRegex(ValueError, "Elementfolge"):
+            validate_project(self.p)
+
     def test_distinct_elements_are_per_person_and_main_apparatus(self):
         a = self.p["actions"][0]
         a["elements"] = [{"name": "Kippe", "countable": True}, {"name": " KIPPE ", "countable": True}, {"name": "Schwung", "countable": False}]
