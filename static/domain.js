@@ -57,6 +57,13 @@ export function assignment(a,personId) {
 export function actionEnd(a) {
   return a.start+a.length+Math.max(0,...(a.assignments||[]).map(x=>x.offset));
 }
+export function afterActionPlacement(project, action) {
+  const ss=sections(project), source=ss.find(s=>s.id===action.section_id);
+  if(!source) throw new Error('Abschnitt der Übung nicht gefunden.');
+  const absolute=source.start+actionEnd(action);
+  const target=ss.find(s=>absolute>=s.start&&absolute<s.start+s.beats)||ss.at(-1);
+  return {section_id:target.id,start:absolute-target.start,absolute};
+}
 export function forPerson(a,personId) {
   const seat=assignment(a,personId);
   return {...a,start:a.start+seat.offset,globalStart:a.globalStart===undefined?undefined:a.globalStart+seat.offset,station_id:seat.station_id,offset:seat.offset};

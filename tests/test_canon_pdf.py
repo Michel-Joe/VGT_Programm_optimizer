@@ -45,6 +45,25 @@ class CanonTests(unittest.TestCase):
         p["actions"].append(other)
         self.assertFalse(any(w["kind"] == "conflict" for w in analyse(p)["warnings"]))
 
+    def test_exit_over_mat_and_next_entry_can_start_together(self):
+        p = fixture()
+        first = p["actions"][0]
+        first.update(section_id=p["sections"][0]["id"], start=0, length=8, people=["p1"], leader_id="p1",
+                     assignments=[{"person_id": "p1", "station_id": "b1", "offset": 0}])
+        p["actions"] = [first,
+            {"id": "exit", "title": "Schritt über Matte", "section_id": p["sections"][1]["id"],
+             "start": 0, "length": 1, "kind": "side", "station_id": "mat_thin", "people": ["p1"],
+             "leader_id": "", "part_id": "", "note": "", "sequence": "1 Schritt über Matte",
+             "assignments": [{"person_id": "p1", "station_id": "mat_thin", "offset": 0}],
+             "cues": [{"beat": 0, "text": "Schritt über Matte"}], "elements": []},
+            {"id": "entry", "title": "Eingang", "section_id": p["sections"][1]["id"],
+             "start": 0, "length": 1, "kind": "apparatus", "station_id": "b2", "people": ["p2"],
+             "leader_id": "", "part_id": "", "note": "", "sequence": "1 Eingang",
+             "assignments": [{"person_id": "p2", "station_id": "b2", "offset": 0}],
+             "cues": [{"beat": 0, "text": "Eingang"}], "elements": []}]
+        validate_project(p)
+        self.assertFalse(any(w["kind"] == "conflict" for w in analyse(p)["warnings"]))
+
     def test_pdf_has_full_sequence_personal_station_chief_and_mates(self):
         p = fixture()
         pdf = export_program(p, "p2")

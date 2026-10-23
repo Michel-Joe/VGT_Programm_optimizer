@@ -16,13 +16,15 @@ Beim ersten Start wird ein deutlich als Beispiel beschriebenes Programm mit acht
 
 ## Was der Prototyp kann
 
-- Barrenanzahl und Flächengrösse einstellen; Barren, Trampolin, dünne und dicke Matten, 16er, Kasten und Nebenposten ziehen, drehen und in Metern positionieren.
+- Barrenanzahl und Flächengrösse einstellen; Barren, Trampolin, dünne und dicke Matten, 16er, Kasten und Nebenposten ziehen, drehen und mit ihren tatsächlichen Grundflächen in Metern positionieren.
+- Einen massstäblichen A3-Hallenplan als PDF mit Geräteraster, Druckmassstab, Kalibrierstrecke und Massliste exportieren.
 - Turnende mit Namen und Farben anlegen und zu jedem Zeitpunkt als Punkte sehen.
 - Abschnitte mit frei wählbarer Länge und BPM planen; 8er-, 6er- oder andere Zählgruppen nutzen.
 - Parallele Aktionen für einzelne oder mehrere Turnende planen, inklusive Ein-/Ausstiegen, Wegen, Nebenposten und Formationen.
+- In der Übungsübersicht direkt einen Abgang/Nebenposten nach einer Übung vorbereiten: Er beginnt am Ende dieser Übung, gegebenenfalls gleichzeitig mit dem Eingang einer anderen Riege in der nächsten Übung. Besetzung, Matte, Dauer und Auftrag bleiben einzeln anpassbar.
 - Einsätze und Notizen auf Viertelschläge genau erfassen. Eine Notiz auf 1.5 entspricht dem „und“ nach Schlag 1.
 - Bausteine mit Länge, Anweisungen, Schlagnotizen und Elementen wiederverwenden; Platzierungen und Personen-Einsätze getrennt zählen.
-- Positionen pro Person und Zeitpunkt setzen; Wege linear darstellen oder Positionen bis zum nächsten Zeitpunkt halten.
+- Positionen pro Person und Schlag direkt im Hallenplan mit der Maus setzen; Zielschläge und lineare Laufwege darstellen oder Positionen bis zum nächsten Zeitpunkt halten.
 - Musik lokal laden, Startversatz setzen und den Ablauf abspielen. Ohne Musik läuft eine BPM-basierte Vorschau.
 - Alle Übungen in einer eigenen Übersicht mit vollständiger Elementfolge lesen; Kanon-Einsätze als Startbalken je Person und Gerät vergleichen.
 - Das Feld in einer eigenen grossen Ansicht verfolgen und dort Positionen geschützt bearbeiten.
@@ -41,6 +43,12 @@ Ein Feld für den absoluten Schlag, Einzelschritte und die Navigation zum nächs
 **Positionsschutz:** Im Normalmodus wählt ein Klick nur einen Turner aus. Erst „Positionen bearbeiten“ aktiviert das Ziehen. Mehrere Änderungen können am festgehaltenen Schlag in der Vorschau ausprobiert werden. „Übernehmen & sperren“ speichert sie gemeinsam; „Verwerfen“ oder Escape stellt den vorherigen Stand wieder her. Während der Vorschau sind Navigation und andere Bearbeitungen gesperrt. Kleine Mausbewegungen unter sechs Pixeln gelten nicht als Ziehen. Ein Rückgängig-Schritt setzt eine übernommene Positionsbearbeitung zurück.
 
 Die **Geräteaufstellung** ist eine separate Einrichtung pro Programm. Geräte sind dort zunächst ebenfalls gesperrt; Änderungen wirken auf alle Schläge. Bestehende Turnerpositionen werden beim Verschieben eines Geräts nicht mitverschoben.
+
+Unter **Geräte & Laufwege** zeigt das Raster Meterkoordinaten. Für jedes Gerät können reale Breite, Tiefe, Mittelpunkt und Drehung eingegeben werden. Die Vorgabemasse sind ausdrücklich nur Beispiele; für einen in die Halle übertragbaren Plan müssen die tatsächlichen Geräte- und Mattenflächen vor Ort gemessen und im Editor als bestätigt markiert werden. Der Export **Massplan als PDF** wählt einen passenden A3-Druckmassstab (bei der Demo 1:100), enthält eine 5-m-Kalibrierstrecke und listet offene Masse sowie ausserhalb der Fläche liegende Geräte auf. Beim Drucken **100 % / tatsächliche Grösse** einstellen und die Kalibrierstrecke mit dem Lineal prüfen. Der Ausdruck ist massstäblich, nicht in Papiergrösse 1:1; die angegebenen Meterkoordinaten und Abstände sind für die Aufstellung massgebend.
+
+In derselben Ansicht den gewünschten **Schlag** und optional einen **Turner** wählen, dann **Turnerpositionen bearbeiten** einschalten. Punkte lassen sich nur in diesem Modus ziehen; **Übernehmen & sperren** fixiert alle geänderten Positionen auf dem gewählten Schlag. Den Ankunftsschlag anwählen, die Person dorthin ziehen und erneut übernehmen: Zwischen den Fixpunkten wird der Laufweg gezeichnet, die Zielschläge stehen am Weg und in der Positionsliste. **Verwerfen** lässt die gespeicherten Punkte unverändert. Der Filter hebt den persönlichen Weg hervor; der PDF-Plan übernimmt gewählten Schlag und Turner.
+
+Geräte können in der Aufstellung auf der Fläche oder in der Liste ausgewählt, mit `Ctrl+C` kopiert und mit `Ctrl+V` eingefügt werden. „Kopieren“ und „Einfügen“ sind auch als Schaltflächen vorhanden. Die Kopie erscheint leicht versetzt und erhält die nächste freie höhere Nummer ihres Namens, etwa „Matte dünn 4“ nach „Matte dünn 3“. Sie kann danach wie jedes andere Gerät verschoben oder bearbeitet werden.
 
 Im Übungseditor wird zuerst die Dauer (`1x8`, `2x8 + 1x4` usw.) und dann die Elementfolge erfasst. Unter „Besetzung & Position“ kann jeder Person ein eigenes Gerät und ein Startversatz für Kanonfolgen zugeteilt werden. Auf Wunsch wird ihre Feldposition am tatsächlichen Startschlag direkt am Gerätezentrum gespeichert. Eine Übung bleibt eine gemeinsame Aktion; ein Versatz verschiebt den persönlichen Einsatz, nicht die Elementfolge der anderen.
 
@@ -89,7 +97,7 @@ Die Elementnamen sind frei eingegeben. Die Software hat keinen offiziellen Eleme
 - Bei gleichzeitigen Änderungen in mehreren Fenstern verhindert eine Revisionsprüfung stilles Überschreiben. Bei Konflikt den ungespeicherten Stand exportieren und die Seite neu laden.
 - Ungespeicherte Bearbeitungen werden zusätzlich als Browserentwurf vorgemerkt. Bei einem späteren Start wird dessen Download zur Wiederherstellung angeboten.
 - Musik verbleibt im Browser und muss nach dem Neuladen wieder ausgewählt werden. Dateiname, zuletzt gemessene Dauer und Versatz werden gespeichert. Keine Audioanalyse oder automatische Beat-Erkennung.
-- Die Flächenansicht ist schematisch. Gerätearten und Abmessungen sind konfigurierbar; Positionen werden nur auf ausdrücklichen Wunsch beim Übungsstart ans Gerät gesetzt. Danach besteht keine automatische Bindung an verschobene Geräte, keine Geräteanimation und keine Kollisionserkennung.
+- Der Hallenplan ist nur so genau wie die vor Ort gemessenen Geräte- und Mattenmasse. Personenpositionen werden nur auf ausdrücklichen Wunsch beim Übungsstart ans Gerät gesetzt; danach besteht keine automatische Bindung an verschobene Geräte, keine Geräteanimation und keine Kollisionserkennung. Laufwege sind geradlinige Planungslinien zwischen Fixpunkten, keine automatische Wegsuche um Geräte.
 - Programmcheck für Barren (BA), kein vollständiger Prüfer für andere Disziplinen, Altersgruppen oder Anlassreglemente. Sicherheit, Matten und Materialfreigaben müssen vor Ort geprüft werden.
 - Ein aktives Programm pro Datenbank, kein Mehrbenutzer-/Cloudbetrieb. Mehrere Programme über JSON-Dateien oder separate Datenbanken (`--db pfad.sqlite3`).
 - Der Server bindet ausschliesslich an `127.0.0.1`. Keine Installation von Webframeworks, keine CDN- oder Schrift-Downloads.

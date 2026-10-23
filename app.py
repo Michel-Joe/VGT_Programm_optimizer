@@ -72,6 +72,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(503, {"error": "PDF-Export benötigt reportlab. Installiere die Pakete aus requirements.txt oder nutze Drucken / Als PDF speichern."})
             except ValueError as error:
                 return self.respond(400, {"error": str(error)})
+        if url == "/api/layout.pdf":
+            try:
+                from layout_export import export_layout
+                query = parse_qs(urlparse(self.path).query)
+                beat = float(query.get("beat", ["0"])[0])
+                person_id = query.get("person", [""])[0]
+                show_paths = query.get("paths", ["1"])[0] == "1"
+                return self.respond(200, export_layout(self.server.store.read()["project"], beat, person_id, show_paths), "application/pdf")
+            except ImportError:
+                return self.respond(503, {"error": "Massplan benötigt reportlab. Installiere die Pakete aus requirements.txt."})
+            except ValueError as error:
+                return self.respond(400, {"error": str(error)})
         allowed = {"/": "index.html", "/app.js": "app.js", "/domain.js": "domain.js", "/style.css": "style.css", "/writer.js": "writer.js", "/writer.css": "writer.css", "/exercise.js": "exercise.js"}
         allowed.update({"/overview.js": "overview.js", "/equipment.js": "equipment.js"})
         if url not in allowed:

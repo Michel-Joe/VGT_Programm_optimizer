@@ -139,6 +139,7 @@ def validate_project(p):
         if station.get("kind") not in STATION_KINDS: fail("Unbekannter Postentyp.")
         for dimension in ("width", "depth"):
             if dimension in station: number(station[dimension], "Gerätegrösse", .2, 12)
+        if "measured" in station and type(station["measured"]) is not bool: fail("Ungültige Massbestätigung.")
     for part in p["parts"]:
         string(part.get("name"), "Bausteinname")
         string(part.get("note"), "Bausteinnotiz")

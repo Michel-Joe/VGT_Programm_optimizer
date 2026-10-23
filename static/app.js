@@ -1,7 +1,7 @@
-import {assignment,actionEnd,forPerson,personActions,clone, uid, clamp, snap, sections, totalBeats, beatToSeconds, secondsToBeat, positionAt, setFrame, resizeSection, globalActions, scaleAction, formatTime, countLabel, personMoment, eventBeats} from './domain.js';
+import {assignment,actionEnd,afterActionPlacement,forPerson,personActions,clone, uid, clamp, snap, sections, totalBeats, beatToSeconds, secondsToBeat, positionAt, setFrame, resizeSection, globalActions, scaleAction, formatTime, countLabel, personMoment, eventBeats} from './domain.js';
 import {writerView,setupView,momentRows,selectionDetail,chiefLabel} from './writer.js';
 import {freeSequence,durationText,parseDuration,sequenceText,parseSequence,sequenceLines,scaleSequence} from './exercise.js';
-import {stationKinds,sizes,stationSvg} from './equipment.js';
+import {stationKinds,sizes,stationSvg,copyStation} from './equipment.js';
 import {overviewView,peopleViewNew} from './overview.js';
 
 const $ = s => document.querySelector(s);
@@ -21,7 +21,7 @@ const icons = {
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.grid}</svg>`;
 const kinds = {apparatus:'Am Barren', side:'Nebenposten', travel:'Weg / Wechsel', pose:'Formation'};
 const colors = ['#217c70','#de9150','#6273bc','#c66586','#4d96b8','#908347','#966bb6','#b76b53'];
-const state = {project:null, revision:0, report:null, tab:'program', section:'', person:'', beat:0, selected:null, floorMode:'view', transition:'linear', playing:false, status:'Laden …', history:[], future:[], version:0, savedVersion:0, saving:false, timer:null, audioUrl:null, audioReady:false, zoom:30};
+const state = {project:null, revision:0, report:null, tab:'program', section:'', person:'', beat:0, selected:null, selectedStation:'', copiedStation:null, pasteCount:0, showPaths:true, floorMode:'view', transition:'linear', playing:false, status:'Laden …', history:[], future:[], version:0, savedVersion:0, saving:false, timer:null, audioUrl:null, audioReady:false, zoom:30};
 const audio = $('#audio');
 let drag = null, frameRequest = null, playbackOrigin = null;
 state.positionEdit=null;
@@ -71,26 +71,28 @@ function render() {
     <div class="sidebar-bottom"><div class="local-badge"><span class="status-dot"></span> Lokal auf deinem Computer</div><p>Deine Choreografie.<br>Schlag für Schlag.</p>${btn('help','Kurzanleitung ↗','text-button')}</div>
   </aside>
   <div class="workspace"><header class="topbar"><div class="breadcrumb">Arbeitsraum <span>/</span> ${esc(p.club||'Mein Verein')}</div><div class="top-actions"><span id="save-status" class="save-status">${esc(state.status)}</span>${btn('undo',icon('back'),'icon-button','title="Rückgängig (Ctrl+Z)" aria-label="Rückgängig" '+(!state.history.length?'disabled':''))}${btn('export',`${icon('export')} Projekt sichern`,'outline')}${btn('settings',icon('settings'),'icon-button','title="Programmeinstellungen" aria-label="Programmeinstellungen"')}</div></header>
-  <main id="main"></main><footer class="app-footer"><span>VGT STUDIO <span class="version">PROTOTYP 02</span></span><span>Planen. Abstimmen. Gemeinsam turnen.</span></footer></div>`;
+  <main id="main"></main><footer class="app-footer"><span>VGT STUDIO <span class="version">PROTOTYP 03</span></span><span>Planen. Abstimmen. Gemeinsam turnen.</span></footer></div>`;
   renderMain();
   $('.sidebar').inert=!!state.positionEdit;
   $('.topbar').inert=!!state.positionEdit;
 }
 function renderMain() {
   const el=$('#main'); if(!el) return;
-  el.innerHTML=state.tab==='program'?programView():state.tab==='field'?writerView(state,{btn,icon,option,personOptions,floorSvg,timelineView}):state.tab==='setup'?setupView(state,{btn,floorSvg}):state.tab==='people'?peopleViewNew(state,{btn,personOptions}):state.tab==='parts'?partsView():checksView();
+  el.innerHTML=state.tab==='program'?programView():state.tab==='field'?writerView(state,{btn,icon,option,personOptions,floorSvg,timelineView}):state.tab==='setup'?setupView(state,{btn,option,personOptions,floorSvg}):state.tab==='people'?peopleViewNew(state,{btn,personOptions}):state.tab==='parts'?partsView():checksView();
   momentSignature='';
   el.classList.toggle('field-view',state.tab==='field');
-  if(['program','field'].includes(state.tab)) updateLive();
+  if(['program','field','setup'].includes(state.tab)) updateLive();
 }
 function pageHeading(eyebrow,title,subtitle,actions='') { return `<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1><p>${subtitle}</p></div><div class="heading-actions">${actions}</div></div>`; }
 function programView() { return overviewView(state,{btn,icon,personOptions}); }
 function floorSvg() {
   const p=state.project,w=p.floor.width*40,h=p.floor.height*40;
+  const pathMarkup=state.tab==='setup'&&!state.showPaths?'':p.people.filter(person=>!state.person||person.id===state.person).map(person=>{const fs=[...person.frames].sort((a,b)=>a.beat-b.beat);return fs.slice(1).map((f,i)=>{const prev=fs[i],line=f.transition==='linear'?`<path d="M${prev.x*40} ${prev.y*40}L${f.x*40} ${f.y*40}" stroke="${person.color}" stroke-opacity="${state.tab==='setup'?0.6:0.2}" stroke-width="${state.tab==='setup'?2.5:1.5}" stroke-dasharray="${state.tab==='setup'?'6 3':'5 5'}" fill="none"/>`:'';return state.tab==='setup'?`${line}<circle cx="${f.x*40}" cy="${f.y*40}" r="4" fill="${person.color}"/><text x="${f.x*40+6}" y="${f.y*40-6}" class="path-beat">${state.person?`Schlag ${f.beat+1}`:`${esc(person.name.slice(0,1))} · ${f.beat+1}`}</text>`:line;}).join('');}).join('');
   return `<svg id="stage" viewBox="-26 -20 ${w+52} ${h+55}" role="img" aria-label="Aufstellung der Barren und Turnenden zum gewählten Schlag"><defs><pattern id="floor-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#dce3dd" stroke-width="0.8"/></pattern></defs><rect width="${w}" height="${h}" rx="4" fill="#f4f7f2"/><rect width="${w}" height="${h}" fill="url(#floor-grid)"/><path d="M${w/2-8} ${h/2}h16m-8-8v16" stroke="#b5c4b8" stroke-width="1.5"/>
   ${Array.from({length:Math.floor(p.floor.width/2)+1},(_,i)=>`<text x="${i*80}" y="-7" text-anchor="middle" class="dimension">${i*2}</text>`).join('')}
-  <g id="paths">${p.people.filter(person=>!state.person||person.id===state.person).map(person=>{const fs=[...person.frames].sort((a,b)=>a.beat-b.beat);return fs.slice(1).filter(f=>f.transition==='linear').map(f=>{const prev=fs[fs.indexOf(f)-1];return `<path d="M${prev.x*40} ${prev.y*40}L${f.x*40} ${f.y*40}" stroke="${person.color}" stroke-opacity=".2" stroke-width="1.5" stroke-dasharray="5 5" fill="none"/>`;}).join('');}).join('')}</g>
-  ${p.stations.map(stationSvg).join('')}
+  ${Array.from({length:Math.floor(p.floor.height/2)+1},(_,i)=>`<text x="-9" y="${i*80+3}" text-anchor="end" class="dimension">${i*2}</text>`).join('')}
+  <g id="paths">${pathMarkup}</g>
+  ${p.stations.map(s=>stationSvg(s,state.tab==='setup'&&state.selectedStation===s.id)).join('')}
   <g id="person-dots">${p.people.map((person,i)=>{const xy=positionAt(person,state.beat);return `<g class="person-dot ${state.person&&state.person!==person.id?'dimmed':''}" transform="translate(${xy.x*40} ${xy.y*40})" data-drag="person" data-id="${esc(person.id)}"><circle r="12" fill="${person.color}" stroke="white" stroke-width="3"/><text text-anchor="middle" dy="4" fill="white" class="dot-number">${i+1}</text><text class="chief-star" data-person="${esc(person.id)}" visibility="hidden" x="15" y="-12" text-anchor="middle" fill="#9d6f18" font-size="20">★</text><text class="dot-name" y="26" text-anchor="middle">${esc(person.name)}</text><title>${esc(person.name)}</title></g>`;}).join('')}</g><path d="M${w/2-65} ${h+19}h130" stroke="#b0bbae"/><text x="${w/2}" y="${h+34}" text-anchor="middle" class="audience-label">PUBLIKUM / FRONT</text></svg>`;
 }
 function inspectorView() {
@@ -109,7 +111,7 @@ function timelineView() {
   return `<div class="timeline" style="--beat-width:${px}px;--lane-width:${width}px"><div class="timeline-ruler"><div class="lane-label">TURNENDE <small>${people.length}</small></div><div class="ruler-track" data-do="seek-lane">${Array.from({length:Math.ceil(s.beats/tickStep)},(_,i)=>i*tickStep).map(i=>`<button class="beat-tick ${i%p.phrase===0?'major':''}" style="left:${i*px}px;width:${Math.max(px*tickStep,20)}px" data-do="seek-beat" data-beat="${s.start+i}" title="Absoluter Schlag ${s.start+i+1}">${i+1}</button>`).join('')}</div></div>${people.map((person,index)=>`<div class="timeline-row"><button class="lane-label" data-do="filter-person" data-id="${esc(person.id)}"><i class="avatar" style="--person-color:${person.color}">${esc(person.name.slice(0,1))}</i><span>${esc(person.name)}</span></button><div class="lane" style="height:${Math.max(1,actions.filter(a=>a.people.includes(person.id)).map(a=>forPerson(a,person.id)).length)*34+14}px">${actions.filter(a=>a.people.includes(person.id)).map(a=>forPerson(a,person.id)).map((a,i)=>`<button class="action-block ${a.kind} ${state.selected===a.id?'selected':''}" style="left:${a.start*px}px;width:${Math.max(a.length*px-4,8)}px;top:${i*34+8}px" data-do="select-action" data-id="${esc(a.id)}" title="${esc(a.title)} · Start ${a.start+1} · ${a.length} Schläge"><span>${esc(a.title)}</span>${a.length*px>150?`<small>${a.length} Schläge</small>`:''}</button>`).join('')}<div class="lane-cursor"></div></div></div>`).join('')||'<p class="empty">Lege zuerst Turnende an.</p>'}</div>`;
 }
 function updateLive() {
-  if(!['program','field'].includes(state.tab)) return;
+  if(!['program','field','setup'].includes(state.tab)) return;
   const p=state.project,s=currentSection(),actual=sections(p).find(s=>state.beat>=s.start&&state.beat<s.start+s.beats)||sections(p).at(-1);
   const beat=Math.floor(state.beat*4)/4;
   document.querySelectorAll('[data-progress-start]').forEach(el=>{el.style.width=`${clamp((state.beat-Number(el.dataset.progressStart))/Number(el.dataset.progressLength),0,1)*100}%`;});
@@ -128,7 +130,7 @@ function updateLive() {
   if($('#moment-rows')&&signature!==momentSignature){$('#moment-rows').innerHTML=momentRows(state);if($('#writer-detail'))$('#writer-detail').innerHTML=selectionDetail(state,{btn});momentSignature=signature;}
   const leaders=new Set(p.actions.filter(a=>a.leader_id).filter(a=>personActions(p,a.leader_id).some(x=>x.id===a.id&&x.globalStart<=state.beat&&state.beat<x.globalStart+x.length)).map(a=>a.leader_id));
   document.querySelectorAll('.chief-star').forEach(el=>el.setAttribute('visibility',leaders.has(el.dataset.person)?'visible':'hidden'));
-  if(state.floorMode==='positions' && $('.floor-hint')?.firstChild?.nodeType===Node.TEXT_NODE) $('.floor-hint').firstChild.textContent=`Turner ziehen: Position auf Schlag ${snap(state.beat)+1} speichern. `;
+  if(state.tab==='field' && state.floorMode==='positions' && $('.floor-hint')?.firstChild?.nodeType===Node.TEXT_NODE) $('.floor-hint').firstChild.textContent=`Turner ziehen: Position auf Schlag ${snap(state.beat)+1} speichern. `;
   document.querySelectorAll('#person-dots [data-id]').forEach(el=>{const person=p.people.find(x=>x.id===el.dataset.id);const xy=positionAt(person,state.beat);el.setAttribute('transform',`translate(${xy.x*40} ${xy.y*40})`);});
   document.querySelectorAll('.lane-cursor').forEach(el=>{el.style.left=`${(state.beat-s.start)*state.zoom}px`;el.hidden=state.beat<s.start||state.beat>s.start+s.beats;});
   const live=$('#live-actions');
@@ -216,10 +218,10 @@ function refreshSequenceEditor(){
     $('#sequence-status').textContent=`${cues.length} Schlagmarken · ${free} freie Zeilen${scaling?' · Schlagmarken werden beim Speichern proportional verschoben.':''}`;
   }catch(error){$('#sequence-status').classList.add('error');$('#sequence-status').textContent=error.message;}
 }
-function actionEditor(id='',partId='') {
+function actionEditor(id='',partId='',draft=null) {
   const p=state.project,old=p.actions.find(a=>a.id===id),part=p.parts.find(x=>x.id===partId);
   const s=currentSection(),start=clamp(snap(state.beat-s.start),0,s.beats-.25);
-  const a=old||{title:part?.name||'',section_id:state.section,start,length:part?.beats||Math.min(8,s.beats-start),people:state.person?[state.person]:[],leader_id:'',station_id:'',kind:part?.kind||'apparatus',part_id:part?.id||'',note:part?.note||'',sequence:part?sequenceText(part):'',cues:clone(part?.cues||[]),elements:clone(part?.elements||[])};
+  const a=old||{title:part?.name||'',section_id:state.section,start,length:part?.beats||Math.min(8,s.beats-start),people:state.person?[state.person]:[],leader_id:'',station_id:'',kind:part?.kind||'apparatus',part_id:part?.id||'',note:part?.note||'',sequence:part?sequenceText(part):'',cues:clone(part?.cues||[]),elements:clone(part?.elements||[]),...draft};
   state.editingAction=clone(a);
   state.assignmentDraft=Object.fromEntries(a.people.map(id=>[id,{...assignment(a,id),place:false}]));
   showModal(old?'Übung / Einsatz bearbeiten':'Neue Übung planen',`
@@ -264,7 +266,18 @@ function sectionEditor(id='') {
 }
 function stationEditor(id='') {
   const s=state.project.stations.find(s=>s.id===id)||{name:`Barren ${state.project.stations.filter(s=>s.kind==='bar').length+1}`,kind:'bar',x:state.project.floor.width/2,y:state.project.floor.height/2,rotation:0};
-  showModal(id?'Gerät / Posten bearbeiten':'Gerät / Posten hinzufügen',`${field('Bezeichnung','name',s.name,'text','required')}${selectField('Typ','kind',Object.entries(stationKinds).map(([v,label])=>option(v,label,s.kind)).join(''))}<div class="form-grid">${field('X-Position (m)','x',s.x,'number',`min="0" max="${state.project.floor.width}" step="0.1" required`)}${field('Y-Position (m)','y',s.y,'number',`min="0" max="${state.project.floor.height}" step="0.1" required`)}${field('Breite (m)','width',s.width||sizes[s.kind][0],'number','min=".2" max="12" step=".05" required')}${field('Tiefe (m)','depth',s.depth||sizes[s.kind][1],'number','min=".2" max="12" step=".05" required')}${field('Drehung (°)','rotation',s.rotation,'number','min="-360" max="360" step="5" required')}</div><p class="field-help">Positionen sind die Mittelpunkte der Symbole. Barren werden schematisch dargestellt; Abstände und Matten vor Ort prüfen.</p>`,'station',id,id?btn('delete-station','Posten löschen','danger text-button',`data-id="${esc(id)}"`):'');
+  showModal(id?'Gerät / Posten bearbeiten':'Gerät / Posten hinzufügen',`${field('Bezeichnung','name',s.name,'text','required')}${selectField('Typ','kind',Object.entries(stationKinds).map(([v,label])=>option(v,label,s.kind)).join(''))}<div class="form-grid">${field('X-Mittelpunkt (m)','x',s.x,'number',`min="0" max="${state.project.floor.width}" step="0.1" required`)}${field('Y-Mittelpunkt (m)','y',s.y,'number',`min="0" max="${state.project.floor.height}" step="0.1" required`)}${field('Reale Breite (m)','width',s.width||sizes[s.kind][0],'number','min=".2" max="12" step=".05" required')}${field('Reale Tiefe (m)','depth',s.depth||sizes[s.kind][1],'number','min=".2" max="12" step=".05" required')}${field('Drehung (°)','rotation',s.rotation,'number','min="-360" max="360" step="5" required')}</div><label class="inline-check"><input type="checkbox" name="measured" ${s.measured?'checked':''}> Breite und Tiefe vor Ort gemessen / bestätigt</label><p class="field-help">Die Vorgabemasse sind nur Beispiele. Miss die tatsächliche Grundfläche inklusive benötigter Matten separat aus. Der Mittelpunkt und die Drehung bestimmen den massgetreuen Grundriss im PDF.</p>`,'station',id,id?btn('delete-station','Posten löschen','danger text-button',`data-id="${esc(id)}"`):'');
+}
+function copySelectedStation(){
+  const selected=state.project.stations.find(s=>s.id===state.selectedStation);
+  if(!selected){toast('Wähle zuerst ein Gerät auf der Fläche oder in der Liste.');return;}
+  state.copiedStation=clone(selected);state.pasteCount=0;toast(`${selected.name} kopiert. Mit Ctrl+V einfügen.`);renderMain();
+}
+function pasteStation(){
+  if(!state.copiedStation){toast('Kopiere zuerst ein Gerät mit Ctrl+C.');return;}
+  if(state.project.stations.length>=100){toast('Höchstens 100 Geräte pro Programm.');return;}
+  const id=uid('b');
+  if(mutate(p=>{p.stations.push(copyStation(p,state.copiedStation,id,state.pasteCount+1));state.selectedStation=id;state.pasteCount++;}))toast('Gerät dupliziert und leicht versetzt. Position bei Bedarf ziehen.');
 }
 function personEditor(id='') {
   const p=state.project.people.find(p=>p.id===id)||{name:'',color:colors[state.project.people.length%colors.length]};
@@ -306,7 +319,7 @@ $('#editor').addEventListener('submit',event=>{
     } else if(type==='section') {
       change=p=>{if(id){resizeSection(p,id,parseDuration(str('section_duration')));Object.assign(p.sections.find(s=>s.id===id),{name:str('name'),bpm:num('bpm'),note:str('note')});}else{const s={id:uid('s'),name:str('name'),beats:parseDuration(str('section_duration')),bpm:num('bpm'),note:str('note')};p.sections.push(s);state.section=s.id;}state.beat=Math.min(state.beat,totalBeats(p));};
     } else if(type==='station') {
-      const station={id:id||uid('b'),name:str('name'),kind:str('kind'),x:num('x'),y:num('y'),rotation:num('rotation'),width:num('width'),depth:num('depth')};
+      const station={id:id||uid('b'),name:str('name'),kind:str('kind'),x:num('x'),y:num('y'),rotation:num('rotation'),width:num('width'),depth:num('depth'),measured:data.has('measured')};
       change=p=>{if(id)p.stations[p.stations.findIndex(s=>s.id===id)]=station;else p.stations.push(station);};
     } else if(type==='person') {
       change=p=>{if(id)Object.assign(p.people.find(x=>x.id===id),{name:str('name'),color:str('color')});else p.people.push({id:uid('p'),name:str('name'),color:str('color'),frames:[{beat:0,x:1,y:p.floor.height-1,transition:'hold'}]});};
@@ -334,7 +347,10 @@ document.addEventListener('click',async event=>{
   else if(action==='setup'){pause();state.floorMode='view';state.tab='setup';render();}
   else if(action==='back-writing'){state.floorMode='view';state.tab='program';render();}
   else if(action==='toggle-layout'){state.floorMode=state.floorMode==='layout'?'view':'layout';renderMain();}
-  else if(action==='edit-station')stationEditor(id);
+  else if(action==='edit-station'){state.selectedStation=id;stationEditor(id);}
+  else if(action==='select-station'){state.selectedStation=id;renderMain();}
+  else if(action==='copy-station')copySelectedStation();
+  else if(action==='paste-station')pasteStation();
   else if(action==='unlock-positions')beginPositionEdit();
   else if(action==='cancel-positions')endPositionEdit(false);
   else if(action==='apply-positions')endPositionEdit(true);
@@ -344,10 +360,20 @@ document.addEventListener('click',async event=>{
   else if(action==='write-person'){state.person=id;actionEditor();}
   else if(action==='section'){pause();state.section=id;state.selected=null;seek(sections(p).find(s=>s.id===id).start);renderMain();}
   else if(action==='new-action')actionEditor();
+  else if(action==='new-side-action')actionEditor('','',{title:'Nebenposten / Weg',kind:'side',length:1,people:[],station_id:p.stations.find(s=>s.kind.startsWith('mat')||s.kind==='side')?.id||''});
+  else if(action==='side-after'){
+    const source=p.actions.find(a=>a.id===id),placement=afterActionPlacement(p,source);
+    const station=p.stations.find(s=>s.kind.startsWith('mat')||s.kind==='side');
+    actionEditor('','',{title:'Abgang / Nebenposten',kind:'side',section_id:placement.section_id,start:placement.start,length:1,people:[...source.people],leader_id:'',station_id:station?.id||'',sequence:'1 Schritt über Matte'});
+  }
   else if(action==='add-in-section'){state.section=id;seek(sections(p).find(s=>s.id===id).start);actionEditor();}
   else if(action==='pdf'){
     await save();if(state.saving||state.savedVersion!==state.version){toast('Vor dem PDF-Export bitte das Speichern abschliessen.');return;}
     try{const response=await fetch('/api/export.pdf?person='+encodeURIComponent(state.person));if(!response.ok){const data=await response.json();throw new Error(data.error);}download(`${safeName(p.name)}-ablauf.pdf`,await response.blob(),'application/pdf');}catch(error){toast(error.message);}
+  }
+  else if(action==='layout-pdf'){
+    await save();if(state.saving||state.savedVersion!==state.version){toast('Vor dem PDF-Export bitte das Speichern abschliessen.');return;}
+    try{const query=new URLSearchParams({beat:String(state.beat),person:state.person,paths:state.showPaths?'1':'0'});const response=await fetch('/api/layout.pdf?'+query);if(!response.ok){const data=await response.json();throw new Error(data.error);}download(`${safeName(p.name)}-hallenplan-schlag-${state.beat+1}.pdf`,await response.blob(),'application/pdf');}catch(error){toast(error.message);}
   }
   else if(action==='edit-action')actionEditor(id);
   else if(action==='select-action'){const a=p.actions.find(a=>a.id===id);state.selected=id;state.section=a.section_id;seek(globalActions(p).find(a=>a.id===id).globalStart);renderMain();}
@@ -385,7 +411,7 @@ document.addEventListener('click',async event=>{
   else if(action==='save') {await save();if(state.savedVersion===state.version){toast('Programmcheck ist aktuell.');renderMain();}}
   else if(action==='new-project') {
     if(confirm('Ein leeres Programm beginnen? Dein aktueller Stand bleibt per Rückgängig und in der lokalen Versionshistorie verfügbar. Sichere ihn bei Bedarf zuerst als JSON.')) {
-      mutate(p=>{p.name='Mein Barrenprogramm';p.people=[];p.actions=[];p.parts=[];p.stations=[];p.sections=[{id:uid('s'),name:'Auftakt',beats:8,bpm:52,note:''}];p.music={name:'',duration:null,offset:0};p.notes='';Object.keys(p.checklist).forEach(k=>p.checklist[k]=false);state.section=p.sections[0].id;state.selected=null;state.person='';state.beat=0;});clearAudio();$('#editor').close();render();
+      mutate(p=>{p.name='Mein Barrenprogramm';p.people=[];p.actions=[];p.parts=[];p.stations=[];p.sections=[{id:uid('s'),name:'Auftakt',beats:8,bpm:52,note:''}];p.music={name:'',duration:null,offset:0};p.notes='';Object.keys(p.checklist).forEach(k=>p.checklist[k]=false);state.section=p.sections[0].id;state.selected=null;state.selectedStation='';state.copiedStation=null;state.person='';state.beat=0;});clearAudio();$('#editor').close();render();
     }
   } else if(action==='help')help();
 });
@@ -396,7 +422,7 @@ function handleDelete(type,id) {
   const ok=mutate(p=>{
     if(type==='action'){p.actions=p.actions.filter(a=>a.id!==id);state.selected=null;}
     if(type==='part'){p.parts=p.parts.filter(a=>a.id!==id);p.actions.forEach(a=>{if(a.part_id===id)a.part_id='';});}
-    if(type==='station'){p.stations=p.stations.filter(s=>s.id!==id);p.actions.forEach(a=>{if(a.station_id===id)a.station_id='';a.assignments?.forEach(x=>{if(x.station_id===id)x.station_id='';});});}
+    if(type==='station'){p.stations=p.stations.filter(s=>s.id!==id);if(state.selectedStation===id)state.selectedStation='';p.actions.forEach(a=>{if(a.station_id===id)a.station_id='';a.assignments?.forEach(x=>{if(x.station_id===id)x.station_id='';});});}
     if(type==='person'){p.people=p.people.filter(x=>x.id!==id);p.actions.forEach(a=>{a.people=a.people.filter(x=>x!==id);if(a.assignments)a.assignments=a.assignments.filter(x=>x.person_id!==id);if(a.leader_id===id)a.leader_id='';});p.actions=p.actions.filter(a=>a.people.length);if(state.person===id)state.person='';}
     if(type==='section'){
       if(p.sections.length===1)throw new Error('Mindestens ein Abschnitt muss bestehen bleiben.');
@@ -413,6 +439,7 @@ document.addEventListener('change',event=>{
   if(el.closest('.assignment-row')){readAssignments($('#editor form')).forEach(seat=>state.assignmentDraft[seat.person_id]=seat);refreshEditorContext();refreshSequenceEditor();}
   if(el.closest('#editor form[data-form="station"]')&&el.name==='kind'){
     const form=el.closest('form');form.querySelector('[name="width"]').value=sizes[el.value][0];form.querySelector('[name="depth"]').value=sizes[el.value][1];
+    form.querySelector('[name="measured"]').checked=false;
     if(!form.dataset.id)form.querySelector('[name="name"]').value=`${stationKinds[el.value]} ${state.project.stations.filter(s=>s.kind===el.value).length+1}`;
   }
   if(el.closest('#editor form[data-form="action"]')&&['people','start','section_id','station_id','leader_id'].includes(el.name))refreshEditorContext();
@@ -421,12 +448,13 @@ document.addEventListener('change',event=>{
   if(el.id==='insert-part'&&el.value)actionEditor('',el.value);
   if(el.id==='floor-mode'){pause();state.floorMode=el.value;renderMain();}
   if(el.id==='transition')state.transition=el.value;
+  if(el.id==='show-paths'){state.showPaths=el.checked;renderMain();}
   if(el.id==='person-filter'){state.person=el.value;renderMain();}
   if(el.id==='zoom'){state.zoom=Number(el.value);renderMain();}
   if(el.id==='scrubber')seek(Number(el.value),true);
   if(el.dataset.check)mutate(p=>p.checklist[el.dataset.check]=el.checked);
 });
-document.addEventListener('input',event=>{if(event.target.id==='scrubber')seek(Number(event.target.value),false);if(event.target.closest('#editor')&&['duration_text','sequence'].includes(event.target.name))refreshSequenceEditor();});
+document.addEventListener('input',event=>{if(event.target.id==='scrubber')seek(Number(event.target.value),false);if(event.target.id==='beat-input'&&event.target.value&&event.target.validity.valid)seek(snap(Number(event.target.value)-1),false);if(event.target.closest('#editor')&&['duration_text','sequence'].includes(event.target.name))refreshSequenceEditor();});
 $('#editor').addEventListener('invalid',event=>{let el=event.target.parentElement;while(el&&el!==$('#editor')){if(el.tagName==='DETAILS')el.open=true;el=el.parentElement;}},true);
 function seek(beat,follow=true) {
   if(state.positionEdit)return;
@@ -470,7 +498,7 @@ $('#import-file').addEventListener('change',async event=>{
     if(!confirm('Dieses Projekt laden und den aktuellen Stand ersetzen? Bei Bedarf zuerst das aktuelle Projekt als JSON sichern.'))return;
     await save();if(state.saving||state.savedVersion!==state.version)throw new Error('Speichern zuerst abschliessen oder den Speicherkonflikt lösen.');
     const response=await fetch('/api/project',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project,revision:state.revision})});const result=await response.json();if(!response.ok)throw new Error(result.error);
-    const old=clone(state.project);clearAudio();state.project=project;state.revision=result.revision;state.report=result.report;state.history.push(old);state.future=[];state.section=project.sections[0].id;state.person='';state.selected=null;state.beat=0;state.status='Lokal gespeichert';$('#editor').close();render();toast('Projekt importiert.');
+    const old=clone(state.project);clearAudio();state.project=project;state.revision=result.revision;state.report=result.report;state.history.push(old);state.future=[];state.section=project.sections[0].id;state.person='';state.selected=null;state.selectedStation='';state.copiedStation=null;state.beat=0;state.status='Lokal gespeichert';$('#editor').close();render();toast('Projekt importiert.');
   }catch(error){toast(`Import fehlgeschlagen: ${error.message}`);}
 });
 function safeName(name){return name.replace(/[^a-zA-Z0-9äöüÄÖÜ_-]+/g,'-');}
@@ -483,7 +511,7 @@ function exportCsv() {
   download(`${safeName(p.name)}-ablauf.csv`,'\uFEFF'+rows.map(r=>r.map(encode).join(';')).join('\r\n'),'text/csv;charset=utf-8');
 }
 function undo(){if(!state.history.length)return;pause();state.future.push(clone(state.project));state.project=state.history.pop();state.version++;state.section=state.project.sections.some(s=>s.id===state.section)?state.section:state.project.sections[0].id;state.person=state.project.people.some(p=>p.id===state.person)?state.person:'';state.beat=Math.min(state.beat,totalBeats(state.project));state.status='Änderungen werden gespeichert …';render();scheduleSave();}
-document.addEventListener('keydown',event=>{if(state.positionEdit){if(event.key==='Escape'){event.preventDefault();endPositionEdit(false);}return;}if(event.target.matches('input,textarea,select')||$('#editor').open)return;if((event.ctrlKey||event.metaKey)&&event.key==='z'){event.preventDefault();undo();}if(event.code==='Space'&&!event.target.matches('button')){event.preventDefault();state.playing?pause():play();}});
+document.addEventListener('keydown',event=>{if(state.positionEdit){if(event.key==='Escape'){event.preventDefault();endPositionEdit(false);}return;}if(event.target.matches('input,textarea,select,[contenteditable]')||$('#editor').open)return;if(state.tab==='setup'&&(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='c'&&state.selectedStation){event.preventDefault();copySelectedStation();return;}if(state.tab==='setup'&&(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='v'&&state.copiedStation){event.preventDefault();pasteStation();return;}if((event.ctrlKey||event.metaKey)&&event.key==='z'){event.preventDefault();undo();}if(event.code==='Space'&&!event.target.matches('button')){event.preventDefault();state.playing?pause():play();}});
 $('#editor').addEventListener('cancel',()=>renderMain());
 window.addEventListener('beforeunload',event=>{if(state.savedVersion!==state.version||state.positionEdit?.dirty){event.preventDefault();event.returnValue='';}});
 
@@ -522,11 +550,13 @@ document.addEventListener('pointermove',event=>{
 });
 document.addEventListener('pointerup',()=>{
   if(!drag)return;const d=drag;drag=null;
+  if(d.type==='station'&&state.tab==='setup')state.selectedStation=d.id;
   if(d.moved){
     if(d.type==='person'){state.positionEdit.dirty=true;renderMain();}
     else markChanged(d.before);
   }
   else if(d.type==='station'&&d.editable)stationEditor(d.id);
+  else if(d.type==='station'&&state.tab==='setup')renderMain();
   else if(d.type==='person'&&!state.positionEdit){state.person=state.person===d.id?'':d.id;renderMain();}
 });
 function cancelDrag(){
